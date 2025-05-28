@@ -1,15 +1,13 @@
 open Coq
 
-
 (*#########################################################################*)
 (* ** Syntax of characteristic formulae *)
 
 type for_loop_dir = For_loop_up | For_loop_down
-
 type record_items = (var * coq * coq) list
 
 type cf =
-    Cf_val of coq
+  | Cf_val of coq
   | Cf_fail
   | Cf_assert of cf
   | Cf_done
@@ -22,8 +20,8 @@ type cf =
   | Cf_let_val of var * vars * coq * coq * cf
   | Cf_let_fun of (var * cf) list * cf
   | Cf_if of coq * cf * cf
-  | Cf_case of coq * typed_vars * coq * coq option *
-      (typed_var * coq) list * cf * cf
+  | Cf_case of
+      coq * typed_vars * coq * coq option * (typed_var * coq) list * cf * cf
   | Cf_match of var * coq * int * cf
   | Cf_seq of cf * cf
   | Cf_for of for_loop_dir * var * coq * coq * cf
@@ -32,7 +30,7 @@ type cf =
   | Cf_pay of cf
 
 type cftop =
-    Cftop_val of typed_var * coq option
+  | Cftop_val of typed_var * coq option
   | Cftop_heap of var
   | Cftop_val_cf of var * vars * vars * coq
   | Cftop_let_cf of var * var * var * cf
@@ -50,264 +48,232 @@ type coq = Coq.coq
 
 (** Abstract datatype for dynamic values *)
 
-let coq_dyn = coq_cfml_var "SepLifted.dyn_make"
-
+let coq_dyn = coq_var "dyn_make"
 let coq_dyn_at = coq_at coq_dyn
-
-let coq_dyn_of t v =
-  coq_apps coq_dyn_at [t; coq_wild; v]
+let coq_dyn_of t v = coq_apps coq_dyn_at [ t; coq_wild; v ]
 
 (** Encoder type *)
 
-let enc_type t =
-  coq_app (coq_cfml_var "SepLifted.Enc") t
+let enc_type t = coq_app (coq_var "Enc") t
 
 (** Injectivity property *)
 
-let coq_injective =
-  coq_var "TLC.LibOperation.injective"
+let coq_injective = coq_var "injective"
 
 (** Encoder constructor *)
 
-let enc_make =
-  coq_cfml_var "SepLifted.make_Enc"
+let enc_make = "make_Enc"
 
 (** Encoder function *)
 
-let enc = coq_cfml_var "SepLifted.enc"
-
-let enc_of c =
-  coq_apps enc [c]
-
-let enc_of_typed typ c =
-  coq_apps (coq_at enc) [typ; coq_wild; c]
+let enc = "enc"
+let enc_of c = coq_apps (coq_var enc) [ c ]
+let enc_of_typed typ c = coq_apps (coq_at (coq_var enc)) [ typ; coq_wild; c ]
 
 (** [enc_arg aname] where [aname] is "A" returns [("EA", Enc A)] *)
 
 let enc_arg aname =
-  let eaname = "E" ^ aname in (* TODO: check conflicts *)
+  let eaname = "E" ^ aname in
+  (* TODO: check conflicts *)
   tv eaname (enc_type (coq_var aname)) true
 
 (* enc_args builds [(A1:Type) (EA1:Enc A1) .. (xn:Type) (EAn:Enc An)] from [A1... An]*)
 
 let enc_args names =
-  List.flatten (List.map (fun aname -> [tv aname Coq_type false; enc_arg aname]) names)
+  List.flatten
+    (List.map (fun aname -> [ tv aname Coq_type false; enc_arg aname ]) names)
 
 (** Universal [forall (A1:Type) (EA1:Enc A1) .. (xn:Type) (EAn:Enc An), c] *)
 
-let coq_forall_enc_types names c =
-  coq_foralls (enc_args names) c
+let coq_forall_enc_types names c = coq_foralls (enc_args names) c
 
 (** Function [fun (A1:Type) (EA1:Enc A1) .. (xn:Type) (EAn:Enc An) => c] *)
 
-let coq_fun_enc_types names c =
-  coq_funs (enc_args names) c
+let coq_fun_enc_types names c = coq_funs (enc_args names) c
 
 (** Syntax of application *)
 
-let trm_apps cf cvs =
-  coq_apps (coq_cfml_var "Semantics.trm_apps") [cf; coq_list cvs]
-
-let trm_apps_lifted cf cvs =
-  coq_apps (coq_cfml_var "SepLifted.Trm_apps") [cf; coq_list cvs]
+let trm_apps cf cvs = coq_apps (coq_var "trm_apps") [ cf; coq_list cvs ]
+let trm_apps_lifted cf cvs = coq_apps (coq_var "Trm_apps") [ cf; coq_list cvs ]
 
 (** Abstract datatype for functions --TODO: could use val directly? *)
 
-let func_type = val_type (* coq_cfml_var "WPBuiltin.func" *)
+let func_type = coq_var val_type (*  "WPBuiltin.func" *)
 
 (** Abstract data type for fields *)
 
-let field_type =
-  coq_cfml_var "Semantics.field"
+let field_type = "field"
 
 (** Abstract data type for locations *)
 
-let loc_type =
-  coq_cfml_var "Semantics.loc"
+let loc_type = "loc"
 
 (** Abstract data type for heaps *)
 
-let heap =
-  coq_cfml_var "SepBase.SepBasicCore.heap"
+let heap = "heap"
 
 (** Type of proposition on heaps, [hprop], a shorthand for [heap->Prop] *)
 
-let hprop =
-   coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hprop"
+let hprop = coq_var "hprop"
 
 (** Type of representation predicates *)
 
 let htype c_abstract c_concrete =
-   coq_apps (coq_cfml_var "WPLib.htype") [c_abstract; c_concrete]
+  coq_apps (coq_var "htype") [ c_abstract; c_concrete ]
 
 (** Predicate transformer for Separation Logic *)
 
 (* FIXME unused
 let mkstruct =
-  coq_cfml_var "WPLifted.MkStruct"
+   "WPLifted.MkStruct"
  *)
 
 (** The identity representation predicate *)
 
-let id_repr =
-   coq_cfml_var "SepBase.SepBasicSetup.HS.Id" (* TODO: introduce a shortname *)
+let id_repr = "Id" (* TODO: introduce a shortname *)
 
 (** Representation predicate tag *)
 
-let hdata c_concrete c_abstract =
-   coq_apps (coq_cfml_var "SepBase.SepBasicSetup.HS.repr") [c_abstract; c_concrete]
+let hdata c_concrete c_abstract = coq_infix c_concrete "~>" c_abstract
 
 (** Type of pure post-conditions [_ -> Prop] *)
 
-let wild_to_prop =
-   coq_pred Coq_wild
+let wild_to_prop = coq_pred Coq_wild
 
 (** Type of imperative post-conditions [_ -> hrop] *)
 
-let wild_to_hprop =
-   Coq_impl (Coq_wild, hprop)
+let wild_to_hprop = Coq_impl (Coq_wild, hprop)
 
 (** Hprop entailment [H1 ==> H2] *)
 
-let himpl h1 h2 =
-  coq_apps (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.himpl") [h1;h2]
+let himpl h1 h2 = coq_infix h1 "==>" h2
 
 (** Specialized Hprop entailment [H1 ==> Q2 tt] *)
 
-let himpl_unit h1 q2 =
-  himpl h1 (Coq_app (q2, coq_tt))
+let himpl_unit h1 q2 = himpl h1 (Coq_app (q2, coq_tt))
 
 (** Postcondition entailment [Q1 ===> Q2] *)
 
-let qimpl q1 q2 =
-  coq_apps (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.qimpl") [q1;q2]
+let qimpl q1 q2 = coq_infix q1 "===>" q2
 
 (** Specialized post-conditions [fun (_:unit) => H], i.e. [# H] *)
 
-let post_unit h =
-  coq_fun (tv "_" coq_typ_unit false) h
+let post_unit h = coq_fun (tv "_" coq_typ_unit false) h
 
 (** Separating conjunction [H1 * H2] *)
 
-let hstar h1 h2 =
-  coq_apps (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hstar") [h1;h2]
+let hstar h1 h2 = coq_infix h1 "\\*" h2
 
 (** Separating conjunction [Q1 * H2] *)
 
 let qstar q1 h2 =
-  let temp = "res__" in (* TODO: clash check *)
+  let temp = "res__" in
+  (* TODO: clash check *)
   coq_fun (tv temp coq_wild false) (hstar (coq_app q1 (coq_var temp)) h2)
 
 (** Pure heap predicates [ \[P] ] *)
 
-let hpure c =
-   coq_app (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hpure") c
+let hpure c = Coq_pure c
 
 (** Pure heap predicates [ \GC ] *)
 
-let hgc =
-   (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hgc")
+let hgc = "hgc"
 
 (** Magic wand [H1 \-* H2] *)
 
-let hwand h1 h2 =
-  coq_apps (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hwand") [h1;h2]
+let hwand h1 h2 = coq_infix h1 "\\-*" h2
 
 (** Magic wand with pure left hand side [\[P] \-* H] *)
 
-let hwand_hpure p h =
-  hwand (hpure p) h
+let hwand_hpure p h = hwand (hpure p) h
 
 (** Magic wand with several pure left hand sides [\[P1] \-* \[P2] \-* H] *)
-
-let hwand_hpures ps h =
-  List.fold_right hwand_hpure ps h
+let hwand_hpures ps h = List.fold_right hwand_hpure ps h
 
 (** Magic wand for postconditions [Q1 \--* Q2] *)
 
-let qwand q1 q2 =
-  coq_apps (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.qwand") [q1;q2]
+let qwand q1 q2 = coq_infix q1 "\\--*" q2
 
 (** Base data [hsingle c1 c2] *)
 
 let hsingle c1 c2 =
-  coq_apps (coq_var_at "CFML.SepBase.hsingle") [c1;Coq_wild;c2]
+  coq_apps (coq_var_at "CFML.SepBase.hsingle") [ c1; Coq_wild; c2 ]
 
 (** Empty heap predicate [[]] *)
 
-let hempty =
-   coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hempty"
+let hempty = Coq_hempty
 
 (** Iterated separating conjunction [H1 * .. * HN] *)
 
 let hstars hs =
-   match (List.rev hs) with
-   | [] -> hempty
-   | hn::hs' -> List.fold_left (fun acc x -> hstar x acc) hn hs'
+  match List.rev hs with
+  | [] -> hempty
+  | hn :: hs' -> List.fold_left (fun acc x -> hstar x acc) hn hs'
 
 (** Lifted existentials [\exists x, H] *)
 
-let hexists xname xtype h =
-  Coq_app (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hexists", coq_fun (tv xname xtype false) h)
+let hexists xname xtype h = Coq_quant (Hexists, tv xname xtype false, h)
 
 (** Lifted existentials [\exists x, H], alternative *)
 
-let hexists_one (xname, xtype) h =
-   hexists xname xtype h
+let hexists_one (xname, xtype) h = hexists xname xtype h
 
 (** Iteration of lifted existentials [\exists x1, .. \exists xn, H] *)
 
 let hexistss x_names_types h =
-  List.fold_right (fun (xname,xtype) acc -> hexists xname xtype acc) x_names_types h
+  List.fold_right
+    (fun (xname, xtype) acc -> hexists xname xtype acc)
+    x_names_types h
 
 (** Lifted universal [\forall x, H] *)
 
-let hforall xname xtype h =
-   Coq_app (coq_cfml_var "SepBase.SepBasicSetup.SepSimplArgsCredits.hforall", coq_fun (tv xname xtype false) h)
+let hforall xname xtype h = Coq_quant (Hforall, tv xname xtype false, h)
 
 (** Lifted universal [\forall x, H], alternative *)
 
-let hforall_one (xname, xtype) h =
-   hforall xname xtype h
+let hforall_one (xname, xtype) h = hforall xname xtype h
 
 (** Iteration of lifted universals [\forall x1, .. \forall xn, H] *)
 
-let hforalls x_names_types h =
-  List.fold_right hforall_one x_names_types h
+let hforalls x_names_types h = List.fold_right hforall_one x_names_types h
 
 (** Precise type of formulae [hprop->(T->hprop)->Prop] *)
 
-let formula_type_of c =
-   coq_impls [hprop; Coq_impl (c, hprop)] Coq_prop
+let formula_type_of c = coq_impls [ hprop; Coq_impl (c, hprop) ] Coq_prop
 
 (** Generic type of formulae [hprop->(_->hprop)->Prop] *)
 
-let formula_type =
-   formula_type_of Coq_wild
+let formula_type = formula_type_of Coq_wild
 
 (** Application of a formula [F _ _ Q] *)
 
-let formula_app f q =
-  coq_apps f [coq_wild; coq_wild; q]
+let formula_app f q = coq_apps f [ coq_wild; coq_wild; q ]
 
 (** Entailment for a formula [H ==> F _ _ Q] *)
 
-let himpl_formula_app h f q =
-  himpl h (formula_app f q)
+let himpl_formula_app h f q = himpl h (formula_app f q)
 
-(** Construction of a formula of the form [fun A (EA:enc A) (Q:A->hprop) => H] *)
+(** Construction of a formula of the form [fun A (EA:enc A) (Q:A->hprop) => H]
+*)
 
 let formula_def aname qname c =
   let typ_a = Coq_type in
   let typ_q = coq_impl (coq_var aname) hprop in
-  coq_funs [tv aname typ_a false; enc_arg aname; tv qname typ_q false] c
+  coq_funs [ tv aname typ_a false; enc_arg aname; tv qname typ_q false ] c
 
-(** Construction of a proposition of the form [forall (H:hprop) A (EA:enc A) (Q:A->hprop) => P] *)
+(** Construction of a proposition of the form
+    [forall (H:hprop) A (EA:enc A) (Q:A->hprop) => P] *)
 
 let forall_prepost h aname qname p =
   let typ_a = Coq_type in
   let typ_q = coq_impl (coq_var aname) hprop in
-  coq_foralls [tv h hprop false; tv aname typ_a false; enc_arg aname; tv qname typ_q false] p
-
+  coq_foralls
+    [
+      tv h hprop false;
+      tv aname typ_a false;
+      enc_arg aname;
+      tv qname typ_q false;
+    ]
+    p
 
 (* TODO: check which of these bindings are actually needed *)

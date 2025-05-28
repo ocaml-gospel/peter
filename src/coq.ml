@@ -9,13 +9,11 @@ let list_make n v = List.init n (fun _ -> v)
 
 (** Coq variables and paths *)
 
+type quant = Exists | Forall | Hexists | Hforall
+
 type var = string
 and vars = var list
-and typed_var = {
-    var_name : var;
-    var_type : coq;
-    var_impl : bool;
-  }
+and typed_var = { var_name : var; var_type : coq; var_impl : bool }
 and typed_vars = typed_var list
 and coq_path = Coqp_var of var | Coqp_dot of coq_path * string
 
@@ -30,12 +28,13 @@ and coq =
   | Coq_app of coq * coq
   | Coq_impl of coq * coq
   | Coq_lettuple of coqs * coq * coq
-  | Coq_forall of typed_var * coq
+  | Coq_quant of quant * typed_var * coq
   | Coq_fun of typed_var * coq
   | Coq_fix of var * int * coq * coq
     (* the int is the number of "fun" in the body,
        the first coq is the return type,
        the second coq is the body *)
+  | Coq_infix of coq * var * coq
   | Coq_wild
   | Coq_prop
   | Coq_type
@@ -47,11 +46,14 @@ and coq =
   | Coq_tag of string * coq list * string option * coq
   | Coq_annot of coq * coq
   | Coq_par of coq
+  | Coq_pure of coq
+  | Coq_hempty
+  | Coq_spec of var * typed_vars * coq * coq
 (* DEPRECATED ; maybe future ?  | Coq_list of coq list *)
 
 and coqs = coq list
 
-let tv var_name var_type var_impl = {var_name; var_type; var_impl}
+let tv var_name var_type var_impl = { var_name; var_type; var_impl }
 
 (** Toplevel declarations *)
 
@@ -61,6 +63,7 @@ type coqtop =
     (* Coqtop_fundef(isrecursive, [(fun_name,typed_args,ret_type,body)])
        the list has more than one item for a mutually-recursive definition *)
   | Coqtop_param of typed_var
+  | Coqtop_axiom of typed_var
   | Coqtop_instance of typed_var * coq option * bool
   | Coqtop_lemma of typed_var
   | Coqtop_proof of string
@@ -143,20 +146,24 @@ let coq_mapper (f : coq -> coq) (c : coq) : coq =
       let r1 = f c1 in
       let r2 = f c2 in
       Coq_lettuple (rs, r1, r2)
-  | Coq_forall (v, c2) ->
-     let r1 = f v.var_type in
-     let v = {v with var_type = r1} in 
-     let r2 = f c2 in
-     Coq_forall (v, r2)
+  | Coq_quant (q, v, c2) ->
+      let r1 = f v.var_type in
+      let v = { v with var_type = r1 } in
+      let r2 = f c2 in
+      Coq_quant (q, v, r2)
   | Coq_fun (v, c2) ->
-     let r1 = f v.var_type in
-     let v = {v with var_type = r1} in 
-     let r2 = f c2 in
-     Coq_fun (v, r2)
+      let r1 = f v.var_type in
+      let v = { v with var_type = r1 } in
+      let r2 = f c2 in
+      Coq_fun (v, r2)
   | Coq_fix (x, n, c1, c2) ->
       let r1 = f c1 in
       let r2 = f c2 in
       Coq_fix (x, n, r1, r2)
+  | Coq_infix (c1, v, c2) ->
+      let r1 = f c1 in
+      let r2 = f c2 in
+      Coq_infix (r1, v, r2)
   | Coq_tuple cs ->
       let rs = List.map f cs in
       Coq_tuple rs
@@ -193,8 +200,17 @@ let coq_mapper (f : coq -> coq) (c : coq) : coq =
   | Coq_par c1 ->
       let r1 = f c1 in
       Coq_par r1
+  | Coq_pure p ->
+      let p = f p in
+      Coq_pure p
+  | Coq_hempty -> Coq_hempty
+  | Coq_spec (app, v, pre, post) ->
+      let pre = f pre in
+      let post = f post in
+      Coq_spec (app, v, pre, post)
 
-let coq_mapper_in_typedvar (f : coq -> coq) v : typed_var = {v with var_type = f v.var_type}
+let coq_mapper_in_typedvar (f : coq -> coq) v : typed_var =
+  { v with var_type = f v.var_type }
 
 let coq_mapper_in_coqind (f : coq -> coq) (ci : coqind) : coqind =
   {
@@ -215,6 +231,7 @@ let coq_mapper_in_coqtop (f : coq -> coq) (ct : coqtop) : coqtop =
   | Coqtop_section _ | Coqtop_module _ | Coqtop_module_type _ ->
       ct
   | Coqtop_param xc -> Coqtop_param (coq_mapper_in_typedvar f xc)
+  | Coqtop_axiom xc -> Coqtop_axiom (coq_mapper_in_typedvar f xc)
   | Coqtop_instance (xc, co, b) ->
       let xc2 = coq_mapper_in_typedvar f xc in
       let co2 = Option.map f co in
@@ -242,7 +259,9 @@ let coq_mapper_in_coqtop (f : coq -> coq) (ct : coqtop) : coqtop =
 
 (** Toplevel *)
 
-let coqtop_def_untyped x c = Coqtop_def ({var_name=x; var_type=Coq_wild; var_impl=false}, c)
+let coqtop_def_untyped x c =
+  Coqtop_def ({ var_name = x; var_type = Coq_wild; var_impl = false }, c)
+
 let coqtop_noimplicit x = Coqtop_implicit (x, [])
 let coqtop_register db x v = Coqtop_register (db, x, v)
 
@@ -295,12 +314,6 @@ let coq_at c =
 
 let coq_wild = Coq_wild
 
-(* CFML Identifier ---TODO: move elsewhere? *)
-
-let coq_cfml_var x =
-  (* TODO: there are places where it's not yet used *)
-  coq_var ("CFML." ^ x)
-
 (*#########################################################################*)
 (* ** Smart constructors for applications *)
 
@@ -315,6 +328,7 @@ let coq_apps c args = List.fold_left coq_app c args
 (** Application [c0 c1 c2] *)
 
 let coq_app_2 c0 c1 c2 = coq_apps c0 [ c1; c2 ]
+let coq_infix c1 op c2 = Coq_infix (c1, op, c2)
 
 (** Application [x c] *)
 
@@ -367,8 +381,8 @@ let coq_annot (term : coq) (term_type : coq) = Coq_annot (term, term_type)
 
 (** Function [fun (x:t) => c] where [arg] is the pair [(x,t)] *)
 
-let coq_fun arg c = Coq_fun (arg, c)
 (** Function [fun (x1:T1) .. (xn:Tn) => c] *)
+let coq_fun arg c = Coq_fun (arg, c)
 
 (** Recursive function [fix f (x1:T1) .. (xn:Tn) : Tr => c] represented as
     [Coq_fix f n Tr body] where [body] is the representation of
@@ -400,17 +414,18 @@ let coq_if_prop c0 c1 c2 = Coq_if (Coq_app (Coq_var "classicT", c0), c1, c2)
 
 (** Existential [exists (x:c1), c2] *)
 
-let coq_exist x c1 c2 =
-  coq_apps (Coq_var "Coq.Init.Logic.ex") [ coq_fun (tv x c1 false) c2 ]
+let coq_exist x c1 c2 = Coq_quant (Exists, tv x c1 false, c2)
 
 (** Existential [exists (x1:T1) .. (xn:Tn), c] *)
 
 let coq_exists xcs c2 =
-  List.fold_right (fun {var_name=x; var_type=c;_} acc -> coq_exist x c acc) xcs c2
+  List.fold_right
+    (fun { var_name = x; var_type = c; _ } acc -> coq_exist x c acc)
+    xcs c2
 
 (** Universal [forall (x1:T1) .. (xn:Tn), c] *)
 
-let coq_forall arg c = Coq_forall (arg, c)
+let coq_forall arg c = Coq_quant (Forall, arg, c)
 let coq_foralls args c = List.fold_right coq_forall args c
 
 (** Universal [forall (x1:Type) .. (xn:Type), c] *)
@@ -420,7 +435,7 @@ let coq_forall_types names c = coq_foralls (coq_types names) c
 (** Universal [forall (x1:_) .. (xn:_), c] *)
 
 let coq_foralls_wild names c =
-  coq_foralls (List.map (fun n -> (tv n Coq_wild false)) names) c
+  coq_foralls (List.map (fun n -> tv n Coq_wild false) names) c
 
 (** Implication [c1 -> c2] *)
 
@@ -437,13 +452,14 @@ let coq_pred c = coq_impl c Coq_prop
 (** N-ary predicate [c1 -> c2 -> .. -> cn -> Prop] *)
 
 let coq_preds cs = coq_impls cs Coq_prop
+let coq_spec f tv pre post = Coq_spec (f, tv, pre, post)
 
 (*#########################################################################*)
 (* ** Smart constructors for base types *)
 
 let coq_typ_prop = Coq_prop
 let coq_typ_type = Coq_type
-let coq_typ_unit = Coq_var "Coq.Init.Datatypes.unit"
+let coq_typ_unit = Coq_var "unit"
 let coq_typ_bool = Coq_var "Coq.Init.Datatypes.bool"
 let coq_typ_int = Coq_var "Coq.Numbers.BinNums.Z"
 let coq_typ_z = coq_typ_int
@@ -498,7 +514,8 @@ let coq_typ_option c = coq_app (coq_var "Coq.Init.Datatypes.option") c
 
 let coq_prop_false = Coq_var "Coq.Init.Logic.False"
 let coq_prop_true = Coq_var "Coq.Init.Logic.True"
-let coq_tt = Coq_var "Coq.Init.Datatypes.tt"
+let coq_tt_tv = tv "tt" coq_typ_unit false
+let coq_tt = Coq_var "tt"
 let coq_bool_false = Coq_var "Coq.Init.Datatypes.false"
 let coq_bool_true = Coq_var "Coq.Init.Datatypes.true"
 let coq_nat n = Coq_nat n
@@ -511,7 +528,9 @@ let coq_string s = Coq_string s
 let coq_nil ?(typ : coq option) () =
   let f = "Coq.Lists.List.nil" in
   (* TODO: factorize this code pattern with "coq_none", etc. *)
-  match typ with None -> coq_apps_var f [] | Some t -> coq_apps_var_at f [ t ]
+  match typ with
+  | None -> coq_apps_var f []
+  | Some t -> coq_apps_var_at f [ t ]
 
 let coq_cons ?(typ : coq option) c1 c2 =
   let f = "Coq.Lists.List.cons" in
@@ -653,10 +672,10 @@ let coq_minus c1 c2 = coq_apps (Coq_var "Coq.ZArith.BinInt.Zminus") [ c1; c2 ]
 (* ** Smart constructors for the [Semantics] file *)
 (* TODO: move to some other file? *)
 
-let pat_type = coq_cfml_var "Semantics.pat"
-let trm_type = coq_cfml_var "Semantics.trm"
-let val_type = coq_cfml_var "Semantics.val"
-let val_constr = coq_cfml_var "Semantics.val_constr"
+let pat_type = "pat"
+let trm_type = "trm"
+let val_type = "val"
+let val_constr = "val_constr"
 
 (*#########################################################################*)
 (* ** Inversion functions *)

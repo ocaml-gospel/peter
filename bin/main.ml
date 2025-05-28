@@ -1,10 +1,11 @@
 open Gospel2cfml
 open Gospel
-open Tmodule
 open Format
 
 let fname = ref None
 let version = "0.1~dev"
+let backend = ref Sep2coq.CFML
+let dir = ref ""
 
 let spec =
   [
@@ -14,6 +15,12 @@ let spec =
           printf "gospel2cfml %s@." version;
           exit 0),
       " print version information" );
+    ( "--iris",
+      Arg.Unit (fun () -> backend := Sep2coq.Iris),
+      " use Iris as a verification backend" );
+    ( "--dir",
+      Arg.String (fun s -> dir := s),
+      " the directory in which the generated file will be output" );
   ]
 
 let usage_msg = sprintf "%s <file>.ml\nVerify OCaml program\n" Sys.argv.(0)
@@ -30,37 +37,19 @@ let set_file f =
 let () = Arg.parse spec set_file usage_msg
 let fname = match !fname with None -> usage () | Some f -> f
 
-let path2module p =
-  Filename.basename p |> Filename.chop_extension |> String.capitalize_ascii
-
-let base_fname f = Filename.basename f |> Filename.chop_extension
-
-let type_check load_path name sigs =
-  let mn = path2module name in
-  let md = init_muc mn in
-  let penv =
-     Utils.Sstr.singleton mn |> Typing.penv load_path
-  in
-  let md = List.fold_left (Typing.type_sig_item penv) md sigs in
-  wrap_up_muc md
-
 let () =
-  let open Parser_frontend in
-    let load_path = [ Filename.dirname fname ] in
-  let ocaml = parse_ocaml fname in
-  let module_nm = path2module fname in
-  let sigs = parse_gospel ~filename:fname ocaml module_nm in
-  let file = type_check load_path fname sigs in
-  let file_sep = Tast2sep.process_sigs file in
-  let file_cfml = Sep2coq.sep_defs file_sep in
-  let out_fname = base_fname fname ^ "_mli.v" in
-  let base_dir =
-    "/home/tiago/phd/cfml/examples/translations/"
-    ^ (String.capitalize_ascii (base_fname fname)) in
-  let () = if not (Sys.file_exists base_dir) then
-    Sys.mkdir base_dir 0o755 else () in 
+  let file_sep =
+    match Gospel.sep ~verbose:false [ fname ] with
+    | [ x ] -> x
+    | _ -> assert false
+  in
+  let file_cfml = Sep2coq.sep_defs ~sep_logic:CFML file_sep in
+  let out_fname = file_sep.fmodule ^ "_mli.v" in
+  let base_dir = !dir ^ file_sep.fmodule in
+  let () =
+    if not (Sys.file_exists base_dir) then Sys.mkdir base_dir 0o755 else ()
+  in
   let directory = base_dir ^ "/" ^ out_fname in
 
   let fmt = formatter_of_out_channel (open_out directory) in
-  fprintf fmt "%s@." (Print_coq.tops file_cfml)
-
+  fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:false))

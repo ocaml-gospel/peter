@@ -114,8 +114,7 @@ let tuple expr es = parens (separate_map (comma ^^ break 1) expr es)
 
 (* Bindings, or annotations: [x : t]. *)
 
-let binding x t =
-  block (x ^^ spacecolon) (space ^^ t) empty
+let binding x t = block (x ^^ spacecolon) (space ^^ t) empty
 
 (* -------------------------------------------------------------------------- *)
 
@@ -127,11 +126,6 @@ let rec expr0 = function
   | Coq_nat n -> parens (string (string_of_int n)) ^^ string "%nat"
   | Coq_int n -> parens (string (string_of_int n)) ^^ string "%Z"
   | Coq_string s -> dquotes (string s)
-  (* DEPRECATED ; maybe future ?
-     | Coq_list cs ->
-         if (cs = []) then string cnil else
-           parens ((separate_map (string "::" ^^ break 1) expr0 cs) ^^ string "::nil")
-  *)
   | Coq_wild -> string "_"
   | Coq_prop -> string "Prop"
   | Coq_type -> string "Type"
@@ -143,13 +137,24 @@ let rec expr0 = function
       (* less well supported:  expr e1 ^^ dot ^^ string f *)
       parens (app (string f) (expr e1))
   | Coq_annot (e1, e2) -> parens (binding (expr e1) (expr e2))
-  | ( Coq_app _ | Coq_tag _ | Coq_impl _ | Coq_lettuple _ | Coq_forall _
-    | Coq_fix _ | Coq_fun _ | Coq_if _ | Coq_match _ ) as e ->
+  | ( Coq_app _ | Coq_tag _ | Coq_impl _ | Coq_lettuple _ | Coq_quant _
+    | Coq_fix _ | Coq_fun _ | Coq_if _ | Coq_match _ | Coq_infix _ ) as e ->
       parens (expr e)
   | Coq_par e -> parens (expr0 e)
+  | Coq_pure e -> backslash ^^ brackets (expr0 e)
+  | Coq_hempty -> backslash ^^ lbracket ^^ rbracket
+  | Coq_spec (f, args, pre, post) ->
+      string "SPEC"
+      ^^ parens
+           (string f ^^ space
+           ^^ separate_map (string " ") (fun x -> string x.var_name) args)
+      ^^ break 0 ^^ string "PRE" ^^ expr0 pre ^^ break 0 ^^ string "POST"
+      ^^ expr0 post
 
 and expr1 = function
   | Coq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
+  | Coq_infix (e1, v, e2) ->
+      group (parens (expr e1 ^^ space ^^ string v ^^ space ^^ expr e2))
   | Coq_tag (tag, args, _, e) ->
       (* TODO: deprecated *)
       let stag =
@@ -178,15 +183,22 @@ and expr3 = function
         (break 1 ^^ expr e1)
         (break 1 ^^ string "in")
       ^/^ expr3 e2
-  | Coq_forall ({var_name=x; var_type=e1; var_impl}, e2) ->
-     let start, _end = if var_impl then lbrace, rbrace else empty, empty in
-       block
-         (string "forall " ^^ start ^^ string x ^^ spacecolon)
-         (break 1 ^^ expr e1 ^^ _end ^^ comma)
-         empty
-       ^/^ expr3 e2
-  | Coq_fun ({var_name=x; var_type=e1; var_impl}, e2) ->
-     let start, _end = if var_impl then lbrace, rbrace else empty, empty in
+  | Coq_quant (q, { var_name = x; var_type = e1; var_impl }, e2) ->
+      let quant =
+        match q with
+        | Forall -> "forall"
+        | Exists -> "exists"
+        | Hforall -> "\\forall"
+        | Hexists -> "\\exists"
+      in
+      let start, _end = if var_impl then (lbrace, rbrace) else (empty, empty) in
+      block
+        (string quant ^^ space ^^ start ^^ string x ^^ spacecolon)
+        (break 1 ^^ expr e1 ^^ _end ^^ comma)
+        empty
+      ^/^ expr3 e2
+  | Coq_fun ({ var_name = x; var_type = e1; var_impl }, e2) ->
+      let start, _end = if var_impl then (lbrace, rbrace) else (empty, empty) in
       block
         (string "fun" ^^ space ^^ start ^^ string x ^^ spacecolon)
         (break 1 ^^ expr e1 ^^ _end)
@@ -216,22 +228,13 @@ and expr3 = function
   | Coq_match (carg, branches) ->
       let mk_branch (c1, c2) =
         group
-          (string "|"
-          ^^ space
-          ^^ expr c1
-          ^^ space
-          ^^ doublearrow
-          ^^ space
-          ^^ expr c2)
+          (string "|" ^^ space ^^ expr c1 ^^ space ^^ doublearrow ^^ space
+         ^^ expr c2)
         ^^ hardline
       in
       block
-        (string "match"
-        ^^ space
-        ^^ expr carg
-        ^^ space
-        ^^ string "with"
-        ^^ hardline)
+        (string "match" ^^ space ^^ expr carg ^^ space ^^ string "with"
+       ^^ hardline)
         (concat_map mk_branch branches)
         (string "end")
   | e -> expr2 e
@@ -244,13 +247,13 @@ and expr e = expr3 e
 
 (* Raw. *)
 
-and var {var_name=x; var_type=t; _} = binding (string x) (expr t)
+and var { var_name = x; var_type = t; _ } = binding (string x) (expr t)
 
 (* With parentheses and with a leading space. *)
 
 and pvar xt =
-  let v = var xt in 
-  space ^^ (if xt.var_impl then braces v else parens v)
+  let v = var xt in
+  space ^^ if xt.var_impl then braces v else parens v
 
 and pvars xts = group (concat_map pvar xts)
 
@@ -368,7 +371,7 @@ let implicit (x, i) =
 (* Toplevel elements. *)
 
 let rec top_internal = function
-  | Coqtop_def ({var_name=x; var_type=e1; _}, e2) ->
+  | Coqtop_def ({ var_name = x; var_type = e1; _ }, e2) ->
       string "Definition" ^^ definition (string x) (expr e1) ^/^ expr e2 ^^ dot
   | Coqtop_fundef (isrec, defs) ->
       let first_keyword, other_keyword =
@@ -381,27 +384,23 @@ let rec top_internal = function
           incr i;
           if !i = 1 then first_keyword else other_keyword
         in
-        string keyword
-        ^^ space
-        ^^ string fname
-        ^^ space
-        ^^ pvars typed_args
-        ^^ spacecolon
-        ^^ space
-        ^^ expr ret_typ
-        ^^ colonequals
-        ^^ break 1
+        string keyword ^^ space ^^ string fname ^^ space ^^ pvars typed_args
+        ^^ spacecolon ^^ space ^^ expr ret_typ ^^ colonequals ^^ break 1
         ^^ expr body (* TODO: ident?*)
       in
       concat_map mk_def defs ^^ dot
-  | Coqtop_param {var_name=x; var_type=e1; _} -> string "Parameter" ^^ parameter (string x) (expr e1)
-  | Coqtop_instance ({var_name=x; var_type=e1; _}, e2o, global) -> (
+  | Coqtop_param { var_name = x; var_type = e1; _ } ->
+      string "Parameter" ^^ parameter (string x) (expr e1)
+  | Coqtop_axiom { var_name = x; var_type = e1; _ } ->
+      string "Axiom" ^^ parameter (string x) (expr e1)
+  | Coqtop_instance ({ var_name = x; var_type = e1; _ }, e2o, global) -> (
       string ((if global then "Global " else "") ^ "Instance")
       ^^
       match e2o with
-      | None -> parameter (string x) (expr e1)
+      | None -> parameter (string x) (expr e1) ^^ string " Admitted" ^^ dot
       | Some e2 -> definition (string x) (expr e1) ^/^ expr e2 ^^ dot)
-  | Coqtop_lemma {var_name=x; var_type=e1; _} -> string "Lemma" ^^ parameter (string x) (expr e1)
+  | Coqtop_lemma { var_name = x; var_type = e1; _ } ->
+      string "Lemma" ^^ parameter (string x) (expr e1)
   | Coqtop_proof s -> sprintf "Proof. %s Qed." s
   | Coqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r ^^ dot
   | Coqtop_ind rs ->
@@ -422,8 +421,7 @@ let rec top_internal = function
          ^^ dot
   *)
   | Coqtop_implicit (x, xs) ->
-      string "Arguments "
-      ^^ string x
+      string "Arguments " ^^ string x
       ^/^ (if xs = [] then string ": clear implicits"
            else flow_map space implicit xs)
       ^^ dot
@@ -431,22 +429,13 @@ let rec top_internal = function
       sprintf "Hint Extern 1 (Register %s %s) => WPHeader_Provide %s." db x v
   | Coqtop_hint_constructors (xs, base) ->
       string "Hint Constructors "
-      ^^ flow_map space string xs
-      ^^ spacecolon
-      ^/^ string base
-      ^^ dot
+      ^^ flow_map space string xs ^^ spacecolon ^/^ string base ^^ dot
   | Coqtop_hint_resolve (xs, base) ->
-      string "Hint Resolve "
-      ^^ flow_map space string xs
-      ^^ spacecolon
-      ^/^ string base
-      ^^ dot
+      string "Hint Resolve " ^^ flow_map space string xs ^^ spacecolon
+      ^/^ string base ^^ dot
   | Coqtop_hint_unfold (xs, base) ->
-      string "Hint Unfold "
-      ^^ flow_map space string xs
-      ^^ spacecolon
-      ^/^ string base
-      ^^ dot
+      string "Hint Unfold " ^^ flow_map space string xs ^^ spacecolon
+      ^/^ string base ^^ dot
   | Coqtop_require xs -> string "Require " ^^ flow_map space string xs ^^ dot
   | Coqtop_import xs -> string "Import " ^^ flow_map space string xs ^^ dot
   | Coqtop_require_import xs ->
@@ -456,11 +445,7 @@ let rec top_internal = function
   | Coqtop_declare_module (x, mt) ->
       string "Declare Module" ^^ parameter (string x) (mod_typ mt)
   | Coqtop_module (x, bs, c, d) ->
-      string "Module"
-      ^^ space
-      ^^ string x
-      ^^ pmod_bindings bs
-      ^^ mod_cast c
+      string "Module" ^^ space ^^ string x ^^ pmod_bindings bs ^^ mod_cast c
       ^^ mod_def d
   | Coqtop_module_type (x, bs, d) ->
       string "Module Type" ^^ space ^^ string x ^^ pmod_bindings bs ^^ mod_def d
