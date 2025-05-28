@@ -11,11 +11,7 @@ let list_make n v = List.init n (fun _ -> v)
 
 type var = string
 and vars = var list
-and typed_var = {
-    var_name : var;
-    var_type : coq;
-    var_impl : bool;
-  }
+and typed_var = { var_name : var; var_type : coq; var_impl : bool }
 and typed_vars = typed_var list
 and coq_path = Coqp_var of var | Coqp_dot of coq_path * string
 
@@ -36,6 +32,7 @@ and coq =
     (* the int is the number of "fun" in the body,
        the first coq is the return type,
        the second coq is the body *)
+  | Coq_infix of coq * var * coq
   | Coq_wild
   | Coq_prop
   | Coq_type
@@ -51,7 +48,7 @@ and coq =
 
 and coqs = coq list
 
-let tv var_name var_type var_impl = {var_name; var_type; var_impl}
+let tv var_name var_type var_impl = { var_name; var_type; var_impl }
 
 (** Toplevel declarations *)
 
@@ -61,6 +58,7 @@ type coqtop =
     (* Coqtop_fundef(isrecursive, [(fun_name,typed_args,ret_type,body)])
        the list has more than one item for a mutually-recursive definition *)
   | Coqtop_param of typed_var
+  | Coqtop_axiom of typed_var
   | Coqtop_instance of typed_var * coq option * bool
   | Coqtop_lemma of typed_var
   | Coqtop_proof of string
@@ -144,19 +142,23 @@ let coq_mapper (f : coq -> coq) (c : coq) : coq =
       let r2 = f c2 in
       Coq_lettuple (rs, r1, r2)
   | Coq_forall (v, c2) ->
-     let r1 = f v.var_type in
-     let v = {v with var_type = r1} in 
-     let r2 = f c2 in
-     Coq_forall (v, r2)
+      let r1 = f v.var_type in
+      let v = { v with var_type = r1 } in
+      let r2 = f c2 in
+      Coq_forall (v, r2)
   | Coq_fun (v, c2) ->
-     let r1 = f v.var_type in
-     let v = {v with var_type = r1} in 
-     let r2 = f c2 in
-     Coq_fun (v, r2)
+      let r1 = f v.var_type in
+      let v = { v with var_type = r1 } in
+      let r2 = f c2 in
+      Coq_fun (v, r2)
   | Coq_fix (x, n, c1, c2) ->
       let r1 = f c1 in
       let r2 = f c2 in
       Coq_fix (x, n, r1, r2)
+  | Coq_infix (c1, v, c2) ->
+      let r1 = f c1 in
+      let r2 = f c2 in
+      Coq_infix (r1, v, r2)
   | Coq_tuple cs ->
       let rs = List.map f cs in
       Coq_tuple rs
@@ -194,7 +196,8 @@ let coq_mapper (f : coq -> coq) (c : coq) : coq =
       let r1 = f c1 in
       Coq_par r1
 
-let coq_mapper_in_typedvar (f : coq -> coq) v : typed_var = {v with var_type = f v.var_type}
+let coq_mapper_in_typedvar (f : coq -> coq) v : typed_var =
+  { v with var_type = f v.var_type }
 
 let coq_mapper_in_coqind (f : coq -> coq) (ci : coqind) : coqind =
   {
@@ -215,6 +218,7 @@ let coq_mapper_in_coqtop (f : coq -> coq) (ct : coqtop) : coqtop =
   | Coqtop_section _ | Coqtop_module _ | Coqtop_module_type _ ->
       ct
   | Coqtop_param xc -> Coqtop_param (coq_mapper_in_typedvar f xc)
+  | Coqtop_axiom xc -> Coqtop_axiom (coq_mapper_in_typedvar f xc)
   | Coqtop_instance (xc, co, b) ->
       let xc2 = coq_mapper_in_typedvar f xc in
       let co2 = Option.map f co in
@@ -242,7 +246,9 @@ let coq_mapper_in_coqtop (f : coq -> coq) (ct : coqtop) : coqtop =
 
 (** Toplevel *)
 
-let coqtop_def_untyped x c = Coqtop_def ({var_name=x; var_type=Coq_wild; var_impl=false}, c)
+let coqtop_def_untyped x c =
+  Coqtop_def ({ var_name = x; var_type = Coq_wild; var_impl = false }, c)
+
 let coqtop_noimplicit x = Coqtop_implicit (x, [])
 let coqtop_register db x v = Coqtop_register (db, x, v)
 
@@ -367,8 +373,8 @@ let coq_annot (term : coq) (term_type : coq) = Coq_annot (term, term_type)
 
 (** Function [fun (x:t) => c] where [arg] is the pair [(x,t)] *)
 
-let coq_fun arg c = Coq_fun (arg, c)
 (** Function [fun (x1:T1) .. (xn:Tn) => c] *)
+let coq_fun arg c = Coq_fun (arg, c)
 
 (** Recursive function [fix f (x1:T1) .. (xn:Tn) : Tr => c] represented as
     [Coq_fix f n Tr body] where [body] is the representation of
@@ -406,7 +412,9 @@ let coq_exist x c1 c2 =
 (** Existential [exists (x1:T1) .. (xn:Tn), c] *)
 
 let coq_exists xcs c2 =
-  List.fold_right (fun {var_name=x; var_type=c;_} acc -> coq_exist x c acc) xcs c2
+  List.fold_right
+    (fun { var_name = x; var_type = c; _ } acc -> coq_exist x c acc)
+    xcs c2
 
 (** Universal [forall (x1:T1) .. (xn:Tn), c] *)
 
@@ -420,7 +428,7 @@ let coq_forall_types names c = coq_foralls (coq_types names) c
 (** Universal [forall (x1:_) .. (xn:_), c] *)
 
 let coq_foralls_wild names c =
-  coq_foralls (List.map (fun n -> (tv n Coq_wild false)) names) c
+  coq_foralls (List.map (fun n -> tv n Coq_wild false) names) c
 
 (** Implication [c1 -> c2] *)
 
@@ -511,7 +519,9 @@ let coq_string s = Coq_string s
 let coq_nil ?(typ : coq option) () =
   let f = "Coq.Lists.List.nil" in
   (* TODO: factorize this code pattern with "coq_none", etc. *)
-  match typ with None -> coq_apps_var f [] | Some t -> coq_apps_var_at f [ t ]
+  match typ with
+  | None -> coq_apps_var f []
+  | Some t -> coq_apps_var_at f [ t ]
 
 let coq_cons ?(typ : coq option) c1 c2 =
   let f = "Coq.Lists.List.cons" in
