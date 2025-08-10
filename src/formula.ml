@@ -114,7 +114,10 @@ let heap = "heap"
 
 (** Type of proposition on heaps, [hprop], a shorthand for [heap->Prop] *)
 
-let hprop = coq_var "hprop"
+let hprop =
+  match !Print_coq.backend with
+  | CFML -> coq_var "hprop"
+  | Iris -> coq_var "iProp"
 
 (** Type of representation predicates *)
 
@@ -134,7 +137,10 @@ let id_repr = "Id" (* TODO: introduce a shortname *)
 
 (** Representation predicate tag *)
 
-let hdata c_concrete c_abstract = coq_infix c_concrete "~>" c_abstract
+let hdata c_concrete c_abstract =
+  match !Print_coq.backend with
+  | CFML -> coq_infix c_concrete "~>" c_abstract
+  | Iris -> Coq_app (c_abstract, c_concrete)
 
 (** Type of pure post-conditions [_ -> Prop] *)
 
@@ -162,7 +168,9 @@ let post_unit h = coq_fun (tv "_" coq_typ_unit false) h
 
 (** Separating conjunction [H1 * H2] *)
 
-let hstar h1 h2 = coq_infix h1 "\\*" h2
+let hstar h1 h2 =
+  let s = match !Print_coq.backend with CFML -> "\\*" | Iris -> "∗" in
+  coq_infix h1 s h2
 
 (** Separating conjunction [Q1 * H2] *)
 
@@ -173,7 +181,7 @@ let qstar q1 h2 =
 
 (** Pure heap predicates [ \[P] ] *)
 
-let hpure c = Coq_pure c
+let hpure c = Coq_sep (Coq_pure c)
 
 (** Pure heap predicates [ \GC ] *)
 
@@ -181,7 +189,11 @@ let hgc = "hgc"
 
 (** Magic wand [H1 \-* H2] *)
 
-let hwand h1 h2 = coq_infix h1 "\\-*" h2
+let hwand h1 h2 =
+  let s =
+    match !Print_coq.backend with CFML -> "\\-*" | Iris -> assert false
+  in
+  coq_infix h1 s h2
 
 (** Magic wand with pure left hand side [\[P] \-* H] *)
 
@@ -201,7 +213,7 @@ let hsingle c1 c2 =
 
 (** Empty heap predicate [[]] *)
 
-let hempty = Coq_hempty
+let hempty = Coq_sep Coq_hempty
 
 (** Iterated separating conjunction [H1 * .. * HN] *)
 

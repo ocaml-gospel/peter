@@ -1,6 +1,10 @@
 open PPrint
 open Coq
 
+type backend = Iris | CFML
+
+let backend = ref CFML
+
 (* These functions could move to [PPrint]. *)
 
 let sprintf format = Printf.ksprintf arbitrary_string format
@@ -73,6 +77,7 @@ let record_braces d = block (string "{|") (break 1 ^^ d) (break 1 ^^ string "|}"
 (* Brackets with spacing and indentation. *)
 
 let brackets d = block lbracket (break 1 ^^ d) (break 1 ^^ rbracket)
+let corners d = block (string "⌜") (break 1 ^^ d) (break 1 ^^ string "⌝")
 
 (* -------------------------------------------------------------------------- *)
 
@@ -141,6 +146,10 @@ let rec expr0 = function
     | Coq_fix _ | Coq_fun _ | Coq_if _ | Coq_match _ | Coq_infix _ ) as e ->
       parens (expr e)
   | Coq_par e -> parens (expr0 e)
+  | Coq_sep e -> (
+      match !backend with CFML -> sep_expr_cfml e | Iris -> sep_expr_iris e)
+
+and sep_expr_cfml = function
   | Coq_pure e -> backslash ^^ brackets (expr0 e)
   | Coq_hempty -> backslash ^^ lbracket ^^ rbracket
   | Coq_spec (f, args, pre, post) ->
@@ -150,6 +159,16 @@ let rec expr0 = function
            ^^ separate_map (string " ") (fun x -> string x.var_name) args)
       ^^ break 0 ^^ string "PRE" ^^ expr0 pre ^^ break 0 ^^ string "POST"
       ^^ expr0 post
+
+and sep_expr_iris = function
+  | Coq_pure e -> corners (expr0 e)
+  | Coq_hempty -> string "True"
+  | Coq_spec (f, args, pre, post) ->
+      let triple b = b ^^ b ^^ b in
+      triple lbrace ^^ expr0 pre ^^ triple rbrace ^^ break 0 ^^ string f
+      ^^ space
+      ^^ separate_map (string " ") (fun x -> string x.var_name) args
+      ^^ break 0 ^^ triple lbrace ^^ expr0 post ^^ triple rbrace
 
 and expr1 = function
   | Coq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
@@ -188,8 +207,8 @@ and expr3 = function
         match q with
         | Forall -> "forall"
         | Exists -> "exists"
-        | Hforall -> "\\forall"
-        | Hexists -> "\\exists"
+        | Hforall -> ( match !backend with CFML -> "\\forall" | Iris -> "∀")
+        | Hexists -> ( match !backend with CFML -> "\\exists" | Iris -> "∃")
       in
       let start, _end = if var_impl then (lbrace, rbrace) else (empty, empty) in
       block

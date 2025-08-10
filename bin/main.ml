@@ -4,7 +4,7 @@ open Format
 
 let fname = ref None
 let version = "0.1~dev"
-let backend = ref Sep2coq.CFML
+let backend = ref Print_coq.CFML
 let dir = ref ""
 
 let spec =
@@ -16,7 +16,7 @@ let spec =
           exit 0),
       " print version information" );
     ( "--iris",
-      Arg.Unit (fun () -> backend := Sep2coq.Iris),
+      Arg.Unit (fun () -> backend := Print_coq.Iris),
       " use Iris as a verification backend" );
     ( "--dir",
       Arg.String (fun s -> dir := s),
@@ -43,7 +43,7 @@ let () =
     | [ x ] -> x
     | _ -> assert false
   in
-  let file_cfml = Sep2coq.sep_defs ~sep_logic:CFML file_sep in
+  let file_cfml = Sep2coq.sep_defs ~sep_logic:!backend file_sep in
   let out_fname = file_sep.fmodule ^ "_mli.v" in
   let base_dir = !dir ^ file_sep.fmodule in
   let () =
@@ -52,4 +52,4 @@ let () =
   let directory = base_dir ^ "/" ^ out_fname in
 
   let fmt = formatter_of_out_channel (open_out directory) in
-  fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:false))
+  fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:true))

@@ -8,9 +8,6 @@ open Formula
 open Coq_driver
 module M = Map.Make (String)
 
-type backend = Iris | CFML
-
-let backend = ref CFML
 let is_stdlib = ref false
 let to_triple s = "_" ^ s ^ "_spec"
 
@@ -21,6 +18,7 @@ let id_map =
   List.fold_left (fun m (k, v) -> M.add k v m) M.empty id_mapping_list
 
 let is_ignore x = List.mem x ignore_list
+let backend = Print_coq.backend
 
 let id_mapper = function
   | "prefix -" -> "neg"
@@ -49,7 +47,7 @@ let id_mapper = function
 
 let coq_keywords = [ "mod"; "Set"; "Alias" ]
 
-let inhab =
+let inhab () =
   match !backend with CFML -> Coq_var "Inhab" | Iris -> Coq_var "Inhabited"
 
 let enc = Coq_var "Enc"
@@ -107,9 +105,11 @@ let gen_poly is_pure poly_vars =
   in
   let f v =
     let nm = String.capitalize_ascii v.var_name in
-    let inhab = (to_inh nm, coq_app inhab (coq_var nm)) in
+    let inhab = (to_inh nm, coq_app (inhab ()) (coq_var nm)) in
     let enc = ("Enc_" ^ nm, coq_app enc (coq_var nm)) in
-    let param = if is_pure then [ inhab ] else [ inhab; enc ] in
+    let param =
+      if is_pure || !backend <> CFML then [ inhab ] else [ inhab; enc ]
+    in
     List.map (fun (n, c) -> tv n c true) param
   in
   let type_properties = List.concat_map f types in
@@ -226,10 +226,42 @@ let gen_tbl tvars =
   let () = List.iter (collect_tvars tbl) tvars in
   tbl
 
+let loc_ty =
+  let loc_id = Ident.mk_id ~loc:Location.none "loc" in
+  let loc_app =
+    {
+      app_qid = Qid loc_id;
+      app_alias = None;
+      app_model = None;
+      app_mut = false;
+    }
+  in
+  PTtyapp (loc_app, [])
+
+let val_ty =
+  let loc_id = Ident.mk_id ~loc:Location.none "val" in
+  let loc_app =
+    {
+      app_qid = Qid loc_id;
+      app_alias = None;
+      app_model = None;
+      app_mut = false;
+    }
+  in
+  PTtyapp (loc_app, [])
+
 let triple_val_to_ts = function
   | Sast.Unit | Wildcard -> []
   | Ghost ts -> [ ts ]
-  | Value v -> [ v.arg_ocaml; v.arg_model ]
+  | Value v ->
+      let ocaml =
+        match !backend with
+        | CFML ->
+            if v.is_loc then { v.arg_ocaml with ts_ty = loc_ty }
+            else v.arg_ocaml
+        | Iris -> { v.arg_ocaml with ts_ty = val_ty }
+      in
+      [ ocaml; v.arg_model ]
 
 let gen_cfml_spec triple =
   let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
@@ -247,10 +279,13 @@ let gen_cfml_spec triple =
           | Sast.Unit -> Some coq_typ_unit (* TODO *)
           | Wildcard -> assert false
           | Ghost _ -> None
-          | Value v ->
-              Some
-                (if v.is_loc then coq_var val_type
-                 else var_of_ty v.arg_ocaml.ts_ty)
+          | Value v -> (
+              match !backend with
+              | CFML ->
+                  Some
+                    (if v.is_loc then coq_var loc_type
+                     else var_of_ty v.arg_ocaml.ts_ty)
+              | Iris -> Some (var_of_ty val_ty))
         in
         coq_typ_tuple (List.filter_map f rets)
   in
@@ -296,6 +331,7 @@ let mk_enc s = "_Enc_" ^ s
 
 let rec sep_def d =
   match d.d_node with
+  | Type tdef when tdef.type_ocaml && !backend <> CFML -> []
   | Type tdef ->
       let ty =
         coq_impls (List.map (fun _ -> Coq_type) tdef.type_args) Coq_type
@@ -303,9 +339,6 @@ let rec sep_def d =
       let nm = tdef.type_name.id_str in
       let poly = List.map (fun x -> tv x.id_str Coq_type true) tdef.type_args in
       let ty_decl = tv nm ty false in
-      let inhab_param =
-        tv ("__Inhab_" ^ nm) (coq_app inhab (coq_var nm)) false
-      in
       let enc_param =
         if tdef.type_ocaml then
           [
@@ -338,7 +371,7 @@ let rec sep_def d =
                     r;
               }
       in
-      [ def; Coqtop_instance (inhab_param, None, false) ] @ enc_param
+      [ def ] @ enc_param
   | Pred pred ->
       let args = List.rev pred.pred_args in
       let poly = gen_poly false pred.pred_poly in
@@ -404,24 +437,24 @@ let rec sep_def d =
       (m :: statements) @ [ Coqtop_end nm_var ]
   | Import l -> [ Coqtop_import (List.map valid_coq_id l) ]
 
-let import_gospelstdlib =
+let import_gospelstdlib () =
   match !backend with
   | CFML -> [ Coqtop_require_import [ "Gospelstdlib_cfml_verified" ] ]
   | Iris -> [ Coqtop_require_import [ "Gospelstdlib_iris_verified" ] ]
 
-let import_stdlib =
+let import_stdlib () =
   match !backend with
   | CFML ->
       [
-        "Coq.ZArith.BinInt";
+        "Stdlib.ZArith.BinInt";
         "TLC.LibLogic";
         "TLC.LibRelation";
         "TLC.LibInt";
         "TLC.LibListZ";
       ]
-  | Iris -> [ "Coq.ZArith.BinInt"; "stdpp.base" ]
+  | Iris -> [ "Stdlib.ZArith.BinInt"; "stdpp.base" ]
 
-let import_sep_semantics =
+let import_sep_semantics () =
   let cfml = List.map (fun s -> "CFML." ^ s) in
   match !backend with
   | CFML ->
@@ -437,17 +470,17 @@ let import_sep_semantics =
           "CFML.Semantics";
           "CFML.WPHeader";
         ]
-  | Iris -> []
+  | Iris -> [ "stdpp.base" ]
 
 let sep_defs ~stdlib ~sep_logic file =
   let () = is_stdlib := stdlib in
-  let () = backend := sep_logic in
+  let () = Print_coq.backend := sep_logic in
   let imports =
     [ Coqtop_set_implicit_args ]
-    @ (if !is_stdlib then [] else import_gospelstdlib)
+    @ (if !is_stdlib then [] else import_gospelstdlib ())
     @ [
-        Coqtop_require import_stdlib;
-        Coqtop_require_import import_sep_semantics;
+        Coqtop_require (import_stdlib ());
+        Coqtop_require_import (import_sep_semantics ());
         Coqtop_require_import [ "Coq.ZArith.BinIntDef" ];
         Coqtop_custom "Delimit Scope Z_scope with Z."
         (*Coqtop_custom "Existing Instance WPHeader.Enc_any | 99."*);
