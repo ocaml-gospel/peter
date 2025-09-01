@@ -474,7 +474,7 @@ let coq_typ_nat = Coq_var "Coq.Init.Datatypes.nat"
 
 (** Product type [(c1 * c2)%type] *)
 
-let coq_prod c1 c2 = coq_apps (Coq_var "Coq.Init.Datatypes.prod") [ c1; c2 ]
+let coq_prod c1 c2 = coq_apps (Coq_var "Corelib.Init.Datatypes.prod") [ c1; c2 ]
 
 (** Product type [(c1 * c2 * .. * cN)%type], or [unit] if the list is empty *)
 

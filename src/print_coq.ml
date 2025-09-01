@@ -173,7 +173,7 @@ and sep_expr_iris = function
 and expr1 = function
   | Coq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
   | Coq_infix (e1, v, e2) ->
-      group (parens (expr e1 ^^ space ^^ string v ^^ space ^^ expr e2))
+      group (parens (expr0 e1 ^^ space ^^ string v ^^ space ^^ expr0 e2))
   | Coq_tag (tag, args, _, e) ->
       (* TODO: deprecated *)
       let stag =
