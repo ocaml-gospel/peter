@@ -129,13 +129,19 @@ let rec expr0 = function
   | Coq_metavar s -> string ("COQ_META[" ^ s ^ "]")
   | Coq_var s -> string s
   | Coq_nat n -> parens (string (string_of_int n)) ^^ string "%nat"
-  | Coq_int n -> parens (string (string_of_int n)) ^^ string "%Z"
+  | Coq_int n -> string (string_of_int n)
   | Coq_string s -> dquotes (string s)
   | Coq_wild -> string "_"
   | Coq_prop -> string "Prop"
   | Coq_type -> string "Type"
   | Coq_tuple [] -> expr0 coq_tt
   | Coq_tuple es -> tuple expr es
+  | Coq_set (v, t) -> (
+      match !backend with
+      | Iris ->
+          lbrace ^^ space ^^ string v ^^ space ^^ bar ^^ space ^^ expr1 t
+          ^^ rbrace
+      | CFML -> parens (string "fun " ^^ string v ^^ string "=>" ^^ expr0 t))
   | Coq_record fes ->
       record_value (List.map (fun (f, e) -> (string f, expr e)) fes)
   | Coq_proj (f, e1) ->

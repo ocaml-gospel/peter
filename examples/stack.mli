@@ -1,75 +1,57 @@
 (*@ open Sequence *)
 
 type t
-(*@ mutable model : int Sequence.t *)
+(*@ mutable model : integer Sequence.t *)
 
 val create : unit -> t
 (*@ q = create ()
-    produces q @ t
-    ensures q = empty
+    produces q
+    ensures q = []
 *)
 
 val push : t -> int -> unit
-(*@ push q x
-    modifies q @ t
+(*@ () = push q x
+    modifies q
     ensures q = cons x (old q)
 *)
 
-val pop_opt : t -> int option
-(*@ r = pop_opt q
-    consumes q @ t
-    produces q @ t
-
-    ensures match r with
-    |None -> old q = empty && q = empty
-    |Some r_val -> old q = cons r_val q
-*)
-
-val top_opt : t -> int option
-(*@ r = top_opt q
-    preserves q @ t
-
-    ensures match r with
-    |None -> q = empty
-    |Some r -> q <> empty && r = hd q
-*)
-
 val clear : t -> unit
-(*@ clear q
-    consumes q @ t
-    produces q @ t
-    ensures q = empty *)
+(*@ () = clear q
+    consumes q
+    produces q
+    ensures q = [] *)
 
 val copy : t -> t
 (*@ q2 = copy q1
-    preserves q1 @ t
-    produces q2 @ t
+    preserves q1
+    produces q2
     ensures q2 = q1
 *)
 
 val is_empty : t -> bool
 (*@ b = is_empty q
-    preserves q @ t
-    ensures b <-> q = empty *)
+    preserves q
+    ensures b <-> q = [] *)
 
 val length : t -> int
 (*@ l = length q
-    preserves q @ t
+    preserves q
     ensures Sequence.length q = l *)
 
 val transfer : t -> t -> unit
-(*@ transfer q1 q2
-    produces q1 @ t
-    produces q2 @ t
-    consumes q1 @ t
-    consumes q2 @ t
+(*@ () = transfer q1 q2
+    consumes q1
+    consumes q2
 
-    ensures q1 = empty
+    produces q1
+    produces q2
+
+    ensures q1 = []
     ensures q2 = old (q2 ++ q1) *)
 
-(*missing : pop, take, iter, fold, to_seq, add_seq, of_seq *)
+(* missing : pop, take, iter, fold, to_seq, add_seq, of_seq *)
 
-(* predicate is_eq (A : type) 
+(* predicate is_eq (A : type)
 (* this predicate does not hold for unwoned mutable structures and functions*)
 
 val st_eq : 'a -> 'a -> bool

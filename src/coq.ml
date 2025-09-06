@@ -27,6 +27,7 @@ and coq =
   | Coq_string of string
   | Coq_app of coq * coq
   | Coq_impl of coq * coq
+  | Coq_set of var * coq
   | Coq_lettuple of coqs * coq * coq
   | Coq_quant of quant * typed_var * coq
   | Coq_fun of typed_var * coq
@@ -54,7 +55,7 @@ and coqs = coq list
 and sep =
   | Coq_pure of coq
   | Coq_hempty
-  | Coq_spec of var * typed_vars * coq * coq
+  | Coq_spec of var * typed_vars * coq * typed_vars * coq
 
 let tv var_name var_type var_impl = { var_name; var_type; var_impl }
 
@@ -170,6 +171,7 @@ let coq_mapper (f : coq -> coq) (c : coq) : coq =
   | Coq_tuple cs ->
       let rs = List.map f cs in
       Coq_tuple rs
+  | Coq_set (v, p) -> Coq_set (v, f p)
   | Coq_record xcs ->
       let xrs = List.map (fun (x, c) -> (x, f c)) xcs in
       Coq_record xrs
@@ -365,6 +367,10 @@ let coq_app_var_at x args =
 
 (*#########################################################################*)
 (* ** Helper functions *)
+
+(** Set construction *)
+
+let coq_set v p = Coq_set (v, p)
 
 (** List of types [(A1:Type)::(A2::Type)::...::(AN:Type)::nil] *)
 

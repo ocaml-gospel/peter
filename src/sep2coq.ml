@@ -20,6 +20,18 @@ let id_map =
 let is_ignore x = List.mem x ignore_list
 let backend = Print_coq.backend
 
+let unicode_mapper = function
+  | "infix ∈" -> "belongs"
+  | "infix ∉" -> "neg_belongs"
+  | "infix ⋅" -> "multiplicity"
+  | "infix ∪" -> "union"
+  | "infix ∩" -> "inter"
+  | "infix ⊂" -> "subset"
+  | "infix ∖" -> "diff"
+  | "infix ++" -> "app"
+  | "∅" | "[]" -> "empty"
+  | s -> s
+
 let id_mapper = function
   | "prefix -" -> "neg"
   | "infix +" -> "plus"
@@ -33,7 +45,6 @@ let id_mapper = function
   | "infix <" -> "lt"
   | "infix <=" -> "le"
   | "infix =" -> "eq"
-  | "infix ++" -> "app"
   | "infix ->" -> "impl"
   | "infix ||" -> "orb"
   | "infix &&" -> "andb"
@@ -43,7 +54,8 @@ let id_mapper = function
   | "mixfix [.._]" -> "seq_sub_r"
   | "mixfix [->]" -> "map_set"
   | "mixfix {}" -> "set_create"
-  | s -> s
+  | "mixfix {:_:}" -> "singleton_set"
+  | s -> unicode_mapper s
 
 let coq_keywords = [ "mod"; "Set"; "Alias" ]
 
@@ -54,22 +66,20 @@ let enc = Coq_var "Enc"
 let eq_dec = Coq_var "EqDecision"
 let valid_coq_id s = if List.mem s coq_keywords then "_" ^ s else id_mapper s
 
-let qual_var qual id =
-  List.fold_left
-    (fun acc x -> valid_coq_id x ^ "." ^ acc)
-    (valid_coq_id id) qual
-
 let stdlib_sym id =
-  match id.id_str with "prop" -> "Prop" | "integer" -> "Z" | _ -> id.id_str
+  match id.id_str with
+  | "prop" -> "Prop"
+  | "integer" -> "Z"
+  | _ -> unicode_mapper id.id_str
 
-let rec qid_to_string = function
-  | Qid id ->
-      let id =
-        if Ident.is_stdlib id || Ident.is_primitive id then stdlib_sym id
-        else id.id_str
-      in
-      valid_coq_id id
-  | Qdot (q, id) -> qid_to_string q ^ "." ^ id.id_str
+let rec qid_to_string =
+  let valid_string id =
+    if Ident.is_stdlib id || Ident.is_primitive id then stdlib_sym id
+    else valid_coq_id id.id_str
+  in
+  function
+  | Qid id -> valid_string id
+  | Qdot (q, id) -> qid_to_string q ^ "." ^ valid_string id
 
 let var_of_ty t =
   let rec var_of_ty = function
@@ -107,7 +117,10 @@ let gen_args vs =
   else [ v ]
 
 let gen_spec_args = function
-  | Sast.Unit -> [ coq_tt_tv ]
+  | Sast.Unit -> (
+      match !backend with
+      | CFML -> [ coq_tt_tv ]
+      | Iris -> [ tv "#()" coq_typ_unit false ])
   | Wildcard -> assert false (* TODO *)
   | Ghost ts -> gen_args ts
   | Value v -> gen_args v.arg_ocaml @ gen_args v.arg_model
@@ -142,7 +155,8 @@ let gen_poly is_pure poly_vars =
   types @ properties
 
 let is_infix v =
-  String.starts_with ~prefix:"infix" v.id_str && v.id_str <> "infix ++"
+  let v = unicode_mapper v.id_str in
+  String.starts_with ~prefix:"infix" v
 
 let get_infix t =
   match t.t_node with
@@ -189,7 +203,8 @@ let rec coq_term tvar_tbl t =
           let e2 = coq_term arg1 in
           coq_app e1 e2)
   | Ttyapply (q, ptys) ->
-      let e1 = coq_var_at (qid_to_string q) in
+      let s = qid_to_string q in
+      let e1 = coq_var_at s in
       if only_uses_named tvar_tbl ptys then Coq_var (coq_id q)
       else
         let () = List.iter (collect_tvars_pty tvar_tbl) ptys in
@@ -212,6 +227,7 @@ let rec coq_term tvar_tbl t =
       let thc = coq_term th in
       let elc = coq_term el in
       coq_if_prop gc thc elc
+  | Tset (v, p) -> coq_set v.ts_id.id_str (coq_term p)
   | Tquant (q, ids, t) ->
       let f = match q with Tforall -> coq_foralls | Texists -> coq_exists in
       let () = List.iter (collect_tvars tvar_tbl) ids in
@@ -224,8 +240,10 @@ let rec coq_term tvar_tbl t =
       let vs = List.map (fun x -> coq_var x.ts_id.id_str) vs in
       Coq_lettuple (vs, coq_term t1, coq_term t2)
   | Told t -> coq_term t
-  | Ttrue -> coq_prop_true
-  | Tfalse -> coq_prop_false
+  | Ttrue -> coq_bool_true
+  | Tfalse -> coq_bool_false
+  | TTrue -> coq_prop_true
+  | TFalse -> coq_prop_false
   | Ttuple l -> coq_tuple (List.map coq_term l)
   | Trecord l -> coq_record (List.map (fun (x, t) -> (coq_id x, coq_term t)) l)
   | Tattr (_, t) -> coq_term t
@@ -403,8 +421,15 @@ let rec sep_def d =
   | Pred pred ->
       let args = List.rev pred.pred_args in
       let poly = gen_poly false pred.pred_poly in
-      let types = List.map (fun v -> var_of_ty v.ts_ty) args in
-      let t = coq_impls types hprop in
+      let types =
+        List.mapi
+          (fun i v ->
+            if !backend = Iris && i = 1 then var_of_ty val_ty
+            else var_of_ty v.ts_ty)
+          args
+      in
+
+      let t = coq_impls types (hprop ()) in
       let with_poly = coq_foralls poly t in
       [ Coqtop_param (tv (valid_coq_id pred.pred_name.id_str) with_poly false) ]
   | Triple triple ->
@@ -456,7 +481,7 @@ let rec sep_def d =
       let nm_var = valid_coq_id nm.id_str in
       let m = Coqtop_module (nm_var, [], Mod_cast_free, Mod_def_declare) in
       (m :: statements) @ [ Coqtop_end nm_var ]
-  | Import l -> [ Coqtop_import (List.map valid_coq_id l) ]
+  | Import l -> [ Coqtop_import [ qid_to_string l ] ]
 
 let import_stdlib () =
   match !backend with
@@ -473,9 +498,10 @@ let import_stdlib () =
 let import_gospelstdlib stdlib =
   if stdlib then [ Coqtop_require_import (import_stdlib ()) ]
   else
-    match !backend with
-    | CFML -> [ Coqtop_require_import [ "Gospelstdlib_cfml_verified" ] ]
-    | Iris -> [ Coqtop_require_import [ "Gospelstdlib_iris_verified" ] ]
+    (match !backend with
+    | CFML -> Coqtop_require_import [ "gospelstdlib_verified_tlc" ]
+    | Iris -> Coqtop_require_import [ "gospelstdlib_verified_stdpp" ])
+    :: [ Coqtop_import [ "Stdlib" ] ]
 
 let import_sep_semantics stdlib =
   if stdlib then []
@@ -496,9 +522,22 @@ let import_sep_semantics stdlib =
               "CFML.Semantics";
               "CFML.WPHeader";
             ]
-      | Iris -> [ "stdpp.base" ]
+      | Iris ->
+          [
+            "iris.proofmode.proofmode";
+            "iris.heap_lang.proofmode";
+            "iris.heap_lang.notation";
+            "iris.prelude.options";
+          ]
     in
-    [ Coqtop_require_import l ]
+    Coqtop_require_import l
+    ::
+    (if !backend = Iris then
+       [
+         Coqtop_section "spec";
+         Coqtop_custom "Context `{!heapGS Σ}. Notation iProp := (iProp Σ).";
+       ]
+     else [])
 
 let sep_defs ~stdlib ~sep_logic file =
   let () = is_stdlib := stdlib in
@@ -507,16 +546,24 @@ let sep_defs ~stdlib ~sep_logic file =
     [ Coqtop_set_implicit_args ]
     @ import_gospelstdlib stdlib
     @ import_sep_semantics stdlib
-    @ [
-        Coqtop_require_import [ "Stdlib.ZArith.BinIntDef" ];
-        Coqtop_custom "Local Open Scope Z_scope.";
-      ]
+    @ [ Coqtop_require_import [ "Stdlib.ZArith.BinIntDef" ] ]
+    @
+    match !backend with
+    | Iris -> [ Coqtop_custom "Local Open Scope Z_scope." ]
+    | CFML ->
+        [
+          Coqtop_custom "Local Open Scope Z_scope.";
+          Coqtop_custom "Local Open Scope comp_scope.";
+        ]
   in
   let tops = List.concat_map sep_def file.Gospel.fdefs in
   let top =
     if !is_stdlib then
-      (Coqtop_module_type ("Stdlib", [], Mod_def_declare) :: tops)
+      Coqtop_module_type ("Stdlib", [], Mod_def_declare)
+      :: Coqtop_param (tv "set" (coq_impl_types 1) false)
+      :: tops
       @ [ Coqtop_end "Stdlib" ]
+    else if !backend = Iris then tops @ [ Coqtop_end "spec" ]
     else tops
   in
   imports @ top

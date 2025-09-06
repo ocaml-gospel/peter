@@ -114,7 +114,7 @@ let heap = "heap"
 
 (** Type of proposition on heaps, [hprop], a shorthand for [heap->Prop] *)
 
-let hprop =
+let hprop () =
   match !Print_coq.backend with
   | CFML -> coq_var "hprop"
   | Iris -> coq_var "iProp"
@@ -148,7 +148,7 @@ let wild_to_prop = coq_pred Coq_wild
 
 (** Type of imperative post-conditions [_ -> hrop] *)
 
-let wild_to_hprop = Coq_impl (Coq_wild, hprop)
+let wild_to_hprop = Coq_impl (Coq_wild, hprop ())
 
 (** Hprop entailment [H1 ==> H2] *)
 
@@ -251,7 +251,7 @@ let hforalls x_names_types h = List.fold_right hforall_one x_names_types h
 
 (** Precise type of formulae [hprop->(T->hprop)->Prop] *)
 
-let formula_type_of c = coq_impls [ hprop; Coq_impl (c, hprop) ] Coq_prop
+let formula_type_of c = coq_impls [ hprop (); Coq_impl (c, hprop ()) ] Coq_prop
 
 (** Generic type of formulae [hprop->(_->hprop)->Prop] *)
 
@@ -270,7 +270,7 @@ let himpl_formula_app h f q = himpl h (formula_app f q)
 
 let formula_def aname qname c =
   let typ_a = Coq_type in
-  let typ_q = coq_impl (coq_var aname) hprop in
+  let typ_q = coq_impl (coq_var aname) (hprop ()) in
   coq_funs [ tv aname typ_a false; enc_arg aname; tv qname typ_q false ] c
 
 (** Construction of a proposition of the form
@@ -278,10 +278,10 @@ let formula_def aname qname c =
 
 let forall_prepost h aname qname p =
   let typ_a = Coq_type in
-  let typ_q = coq_impl (coq_var aname) hprop in
+  let typ_q = coq_impl (coq_var aname) (hprop ()) in
   coq_foralls
     [
-      tv h hprop false;
+      tv h (hprop ()) false;
       tv aname typ_a false;
       enc_arg aname;
       tv qname typ_q false;

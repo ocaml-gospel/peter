@@ -5,6 +5,7 @@ open Format
 let fname = ref None
 let version = "0.1~dev"
 let backend = ref Print_coq.CFML
+let stdlib = ref false
 let dir = ref ""
 
 let spec =
@@ -21,6 +22,9 @@ let spec =
     ( "--dir",
       Arg.String (fun s -> dir := s),
       " the directory in which the generated file will be output" );
+    ( "--stdlib",
+      Arg.Unit (fun () -> stdlib := true),
+      "Flag to use when translating the Gospel standard library." );
   ]
 
 let usage_msg = sprintf "%s <file>.ml\nVerify OCaml program\n" Sys.argv.(0)
@@ -52,4 +56,4 @@ let () =
   let directory = base_dir ^ "/" ^ out_fname in
 
   let fmt = formatter_of_out_channel (open_out directory) in
-  fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:true))
+  fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:!stdlib))
