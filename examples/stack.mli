@@ -1,7 +1,7 @@
 (*@ open Sequence *)
 
 type t
-(*@ mutable model : integer Sequence.t *)
+(*@ mutable model : integer sequence *)
 
 val create : unit -> t
 (*@ q = create ()

@@ -10,12 +10,13 @@ let list_make n v = List.init n (fun _ -> v)
 (** Coq variables and paths *)
 
 type quant = Exists | Forall | Hexists | Hforall
-
 type var = string
-and vars = var list
-and typed_var = { var_name : var; var_type : coq; var_impl : bool }
+type vars = var list
+type spec_var = Var of var | Wildcard | Unit
+type coq_path = Coqp_var of var | Coqp_dot of coq_path * string
+
+type typed_var = { var_name : var; var_type : coq; var_impl : bool }
 and typed_vars = typed_var list
-and coq_path = Coqp_var of var | Coqp_dot of coq_path * string
 
 (** Coq expressions *)
 
@@ -48,14 +49,13 @@ and coq =
   | Coq_annot of coq * coq
   | Coq_par of coq
   | Coq_sep of sep
-(* DEPRECATED ; maybe future ?  | Coq_list of coq list *)
 
 and coqs = coq list
 
 and sep =
   | Coq_pure of coq
   | Coq_hempty
-  | Coq_spec of var * typed_vars * coq * typed_vars * coq
+  | Coq_spec of var * typed_vars * coq * spec_var list * coq
 
 let tv var_name var_type var_impl = { var_name; var_type; var_impl }
 
@@ -209,10 +209,10 @@ let coq_mapper (f : coq -> coq) (c : coq) : coq =
       let p = f p in
       Coq_sep (Coq_pure p)
   | Coq_sep Coq_hempty -> Coq_sep Coq_hempty
-  | Coq_sep (Coq_spec (app, v, pre, post)) ->
+  | Coq_sep (Coq_spec (app, v, pre, rets, post)) ->
       let pre = f pre in
       let post = f post in
-      Coq_sep (Coq_spec (app, v, pre, post))
+      Coq_sep (Coq_spec (app, v, pre, rets, post))
 
 let coq_mapper_in_typedvar (f : coq -> coq) v : typed_var =
   { v with var_type = f v.var_type }
@@ -461,7 +461,7 @@ let coq_pred c = coq_impl c Coq_prop
 (** N-ary predicate [c1 -> c2 -> .. -> cn -> Prop] *)
 
 let coq_preds cs = coq_impls cs Coq_prop
-let coq_spec f tv pre post = Coq_sep (Coq_spec (f, tv, pre, post))
+let coq_spec f tv pre rets post = Coq_sep (Coq_spec (f, tv, pre, rets, post))
 
 (*#########################################################################*)
 (* ** Smart constructors for base types *)

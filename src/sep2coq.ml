@@ -123,7 +123,7 @@ let gen_spec_args = function
       | Iris -> [ tv "#()" coq_typ_unit false ])
   | Wildcard -> assert false (* TODO *)
   | Ghost ts -> gen_args ts
-  | Value v -> gen_args v.arg_ocaml @ gen_args v.arg_model
+  | Value v -> gen_args v.arg_ocaml
 
 let coq_const c =
   match c with
@@ -309,7 +309,7 @@ let triple_val_to_ts = function
       in
       [ ocaml; v.arg_model ]
 
-let gen_cfml_spec triple =
+let gen_spec triple =
   let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
   let tbl = gen_tbl all_ts in
   let poly = gen_poly false triple.triple_poly in
@@ -317,59 +317,31 @@ let gen_cfml_spec triple =
   let all_vars = List.concat_map gen_args all_ts in
   let mk_condition tl = hstars (List.map (cfml_term tbl) tl) in
   let pre = mk_condition triple.triple_pre in
-  let rets_typ =
+  let ex, posts = triple.triple_post in
+  let post = mk_condition posts in
+  let post_ex =
+    List.fold_right
+      (fun v acc -> hexists v.ts_id.id_str (var_of_ty v.ts_ty) acc)
+      ex post
+  in
+
+  let ret_vars =
     match triple.triple_rets with
-    | [] -> coq_typ_unit
+    | [] -> [ Coq.Unit ]
     | rets ->
         let f = function
-          | Sast.Unit -> Some coq_typ_unit (* TODO *)
-          | Wildcard -> assert false
-          | Ghost _ -> None
-          | Value v -> (
-              match !backend with
-              | CFML ->
-                  Some
-                    (if v.is_loc then coq_var loc_type
-                     else var_of_ty v.arg_ocaml.ts_ty)
-              | Iris -> Some (var_of_ty val_ty))
+          | Sast.Unit -> Coq.Unit
+          | Wildcard -> Coq.Wildcard
+          | Ghost _ -> assert false
+          | Value v ->
+              let nm = v.arg_ocaml.ts_id.id_str in
+              Coq.Var nm
         in
-        coq_typ_tuple (List.filter_map f rets)
-  in
-
-  let res_name = ref "_res_" in
-  let mk_post (vl, tl) =
-    let post = mk_condition tl in
-    let term =
-      List.fold_right
-        (fun v acc -> hexists v.ts_id.id_str (var_of_ty v.ts_ty) acc)
-        vl post
-    in
-    match triple.triple_rets with
-    | [] -> term
-    | [ Value x ] ->
-        res_name := x.arg_ocaml.ts_id.id_str;
-        term
-    | [ Unit ] | [ Wildcard ] ->
-        res_name := "_";
-        term
-    | rets ->
-        let nms =
-          List.map
-            (function
-              | Sast.Wildcard | Unit -> Coq_wild
-              | Ghost _ -> assert false (* TODO *)
-              | Value x -> Coq_var x.arg_ocaml.ts_id.id_str)
-            rets
-        in
-        Coq_lettuple (nms, coq_var !res_name, term)
-  in
-
-  let post =
-    coq_fun (tv !res_name rets_typ false) (mk_post triple.triple_post)
+        List.map f rets
   in
 
   let f = "_" ^ triple.triple_name.id_str in
-  let coq_triple = coq_spec f args pre post in
+  let coq_triple = coq_spec f args pre ret_vars post_ex in
   let triple_vars = coq_foralls all_vars coq_triple in
   coq_foralls poly triple_vars
 
@@ -377,7 +349,7 @@ let mk_enc s = "_Enc_" ^ s
 
 let rec sep_def d =
   match d.d_node with
-  | Type tdef when tdef.type_ocaml && !backend <> CFML -> []
+  | Type tdef when tdef.type_ocaml && !backend = Iris -> []
   | Type tdef ->
       let ty =
         coq_impls (List.map (fun _ -> Coq_type) tdef.type_args) Coq_type
@@ -436,7 +408,7 @@ let rec sep_def d =
       let fun_def =
         tv ("_" ^ triple.triple_name.id_str) Formula.func_type false
       in
-      let fun_triple = gen_cfml_spec triple in
+      let fun_triple = gen_spec triple in
       let triple_name = to_triple triple.triple_name.id_str in
       coqtop_params [ fun_def; tv triple_name fun_triple false ]
   | Val v ->
@@ -487,20 +459,27 @@ let import_stdlib () =
   match !backend with
   | CFML ->
       [
-        "Stdlib.ZArith.BinInt";
-        "TLC.LibLogic";
-        "TLC.LibRelation";
-        "TLC.LibInt";
-        "TLC.LibListZ";
+        Coqtop_custom "Set Warnings \"-deprecated\".";
+        Coqtop_custom "Set Warnings \"-default\".";
+        Coqtop_custom "Set Warnings \"-syntax\".";
+        Coqtop_require_import
+          [
+            "Stdlib.ZArith.BinInt";
+            "TLC.LibLogic";
+            "TLC.LibRelation";
+            "TLC.LibInt";
+            "TLC.LibListZ";
+          ];
       ]
-  | Iris -> [ "Stdlib.ZArith.BinInt"; "stdpp.base" ]
+  | Iris -> [ Coqtop_require_import [ "Stdlib.ZArith.BinInt"; "stdpp.base" ] ]
 
 let import_gospelstdlib stdlib =
-  if stdlib then [ Coqtop_require_import (import_stdlib ()) ]
+  if stdlib then import_stdlib ()
   else
     (match !backend with
-    | CFML -> Coqtop_require_import [ "gospelstdlib_verified_tlc" ]
-    | Iris -> Coqtop_require_import [ "gospelstdlib_verified_stdpp" ])
+    | CFML -> Coqtop_require_import [ "Stdlib_tlc.gospelstdlib_verified_tlc" ]
+    | Iris ->
+        Coqtop_require_import [ "Stdlib_stdpp.gospelstdlib_verified_stdpp" ])
     :: [ Coqtop_import [ "Stdlib" ] ]
 
 let import_sep_semantics stdlib =
@@ -545,8 +524,8 @@ let sep_defs ~stdlib ~sep_logic file =
   let imports =
     [ Coqtop_set_implicit_args ]
     @ import_gospelstdlib stdlib
-    @ import_sep_semantics stdlib
     @ [ Coqtop_require_import [ "Stdlib.ZArith.BinIntDef" ] ]
+    @ import_sep_semantics stdlib
     @
     match !backend with
     | Iris -> [ Coqtop_custom "Local Open Scope Z_scope." ]
