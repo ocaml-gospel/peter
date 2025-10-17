@@ -12,8 +12,7 @@ val create : unit -> t
 val push : t -> int -> unit
 (*@ () = push q x
     modifies q
-    ensures q = cons x (old q)
-*)
+    ensures q = cons x (old q) *)
 
 val clear : t -> unit
 (*@ () = clear q

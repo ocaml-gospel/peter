@@ -49,11 +49,15 @@ let () =
   in
   let file_cfml = Sep2coq.sep_defs ~sep_logic:!backend file_sep in
   let out_fname = file_sep.fmodule ^ "_mli.v" in
-  let base_dir = !dir ^ file_sep.fmodule in
-  let () =
-    if not (Sys.file_exists base_dir) then Sys.mkdir base_dir 0o755 else ()
+  let base_dir =
+    !dir ^ if !backend = CFML then file_sep.fmodule ^ "/" else ""
   in
-  let directory = base_dir ^ "/" ^ out_fname in
+  let () =
+    if base_dir <> "" && not (Sys.file_exists base_dir) then
+      Sys.mkdir base_dir 0o755
+    else ()
+  in
+  let directory = base_dir ^ out_fname in
 
   let fmt = formatter_of_out_channel (open_out directory) in
   fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:!stdlib))
