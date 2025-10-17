@@ -1,12 +1,12 @@
 Set Implicit Arguments.
 
-Require Import Stdlib_stdpp.gospelstdlib_verified_stdpp.
-
-Import Stdlib.
-
 Require Import Stdlib.ZArith.BinIntDef.
 
 Require Import iris.proofmode.proofmode iris.heap_lang.proofmode iris.heap_lang.notation iris.prelude.options.
+
+Require Import Stdlib_stdpp.gospelstdlib_verified_stdpp.
+
+Import Stdlib.
 
 Section spec.
 
@@ -17,7 +17,6 @@ Local Open Scope Z_scope.
 Import Sequence.
 
 Parameter T : sequence Z -> val -> iProp.
-
 Parameter _create : val.
 
 Parameter _create_spec :
@@ -32,9 +31,9 @@ Parameter _push_spec :
   forall q : sequence Z,
   forall __x : val,
   forall x : Z,
-  {{{ T q __q }}}
+  {{{ (T q __q) ∗ (Int x __x) }}}
   _push __q __x
-  {{{ RET #(); T (cons x q) __q }}}.
+  {{{ RET #(); (T (cons x q) __q) ∗ (Int x __x) }}}.
 
 Parameter _clear : val.
 
@@ -55,7 +54,12 @@ Parameter _copy_spec :
   {{{ __q2, RET __q2; (T q1 __q1) ∗ (T q1 __q2) }}}.
 
 Parameter _is_empty : val.
-
+Parameter _is_empty_spec :
+  forall __q : val,
+  forall q : sequence Z,
+  {{{ T q __q }}}
+  _is_empty __q
+  {{{ __b, RET __b; (T q __q) ∗ (Bool (q = empty) __b) }}}.
 
 Parameter _length : val.
 
@@ -64,7 +68,7 @@ Parameter _length_spec :
   forall q : sequence Z,
   {{{ T q __q }}}
   _length __q
-  {{{ l, RET #l; (T q __q) ∗ ⌜ (Sequence.length q) = l ⌝ }}}.
+  {{{ __l, RET __l; (T q __q) ∗ (Int (Sequence.length q) __l) }}}.
 
 Parameter _transfer : val.
 

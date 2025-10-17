@@ -8,6 +8,13 @@ open Formula
 open Coq_driver
 module M = Map.Make (String)
 
+type decls = {
+  abstract : Coq.coqtops;
+  concrete : Coq.coqtops;
+  obligations : Coq.coqtops;
+}
+
+let empty_decls = { abstract = []; concrete = []; obligations = [] }
 let is_stdlib = ref false
 let to_triple s = "_" ^ s ^ "_spec"
 
@@ -21,40 +28,39 @@ let is_ignore x = List.mem x ignore_list
 let backend = Print_coq.backend
 
 let unicode_mapper = function
-  | "infix ∈" -> "belongs"
-  | "infix ∉" -> "neg_belongs"
-  | "infix ⋅" -> "multiplicity"
-  | "infix ∪" -> "union"
-  | "infix ∩" -> "inter"
-  | "infix ⊂" -> "subset"
-  | "infix ∖" -> "diff"
-  | "infix ++" -> "app"
+  | "∈" -> "belongs"
+  | "∉" -> "neg_belongs"
+  | "⋅" -> "multiplicity"
+  | "∪" -> "union"
+  | "∩" -> "inter"
+  | "⊂" -> "subset"
+  | "∖" -> "diff"
+  | "++" -> "app"
   | "∅" | "[]" -> "empty"
   | s -> s
 
 let id_mapper = function
-  | "prefix -" -> "neg"
-  | "infix +" -> "plus"
-  | "infix -" -> "minus"
-  | "infix *" -> "mult"
-  | "infix /" -> "div"
-  | "infix >" -> "gt"
-  | "infix >=" -> "ge"
-  | "infix <>" -> "neq"
-  | "infix <->" -> "iff"
-  | "infix <" -> "lt"
-  | "infix <=" -> "le"
-  | "infix =" -> "eq"
-  | "infix ->" -> "impl"
-  | "infix ||" -> "orb"
-  | "infix &&" -> "andb"
-  | "mixfix [_]" -> "seq_get"
-  | "mixfix [_.._]" -> "seq_sub"
-  | "mixfix [_..]" -> "seq_sub_l"
-  | "mixfix [.._]" -> "seq_sub_r"
-  | "mixfix [->]" -> "map_set"
-  | "mixfix {}" -> "set_create"
-  | "mixfix {:_:}" -> "singleton_set"
+  | "-" -> "neg"
+  | "+" -> "plus"
+  | "*" -> "mult"
+  | "/" -> "div"
+  | ">" -> "gt"
+  | ">=" -> "ge"
+  | "<>" -> "neq"
+  | "<->" -> "iff"
+  | "<" -> "lt"
+  | "<=" -> "le"
+  | "=" -> "eq"
+  | "->" -> "impl"
+  | "||" -> "orb"
+  | "&&" -> "andb"
+  | "[_]" -> "seq_get"
+  | "[_.._]" -> "seq_sub"
+  | "[_..]" -> "seq_sub_l"
+  | "[.._]" -> "seq_sub_r"
+  | "[->]" -> "map_set"
+  | "{}" -> "set_create"
+  | "{:_:}" -> "singleton_set"
   | s -> unicode_mapper s
 
 let coq_keywords = [ "mod"; "Set"; "Alias" ]
@@ -63,13 +69,13 @@ let inhab () =
   match !backend with CFML -> Coq_var "Inhab" | Iris -> Coq_var "Inhabited"
 
 let enc = Coq_var "Enc"
-let eq_dec = Coq_var "EqDecision"
 let valid_coq_id s = if List.mem s coq_keywords then "_" ^ s else id_mapper s
 
 let stdlib_sym id =
   match id.id_str with
   | "prop" -> "Prop"
   | "integer" -> "Z"
+  | "char" -> "ascii"
   | _ -> unicode_mapper id.id_str
 
 let rec qid_to_string =
@@ -102,25 +108,29 @@ let to_dec = ( ^ ) "Dec_"
 
 let gen_args vs =
   let v = tv vs.ts_id.id_str (var_of_ty vs.ts_ty) false in
-  let args =
-    Uast_utils.args_to_list vs.ts_ty
-    |> fst
-    |> List.mapi (fun x _ -> "x" ^ string_of_int x)
-  in
-  let decidable =
-    coq_apps (Coq_var vs.ts_id.id_str) (List.map (fun x -> Coq_var x) args)
-    |> coq_app (Coq_var "Decision")
-    |> coq_foralls (List.map (fun x -> tv x Coq_wild false) args)
-  in
-  let dec_tv = tv (to_dec vs.ts_id.id_str) decidable true in
-  if is_predicate vs.ts_ty && !Print_coq.backend = Iris then [ v; dec_tv ]
-  else [ v ]
+  v
+
+let gen_args_pat p =
+  match p.pat_desc with Pid vs -> gen_args vs | _ -> assert false
+
+let let_pat p =
+  match p.pat_desc with
+  | Pwild -> []
+  | Pid ts -> [ coq_var ts.ts_id.id_str ]
+  | Ptuple ts ->
+      List.map
+        (fun x ->
+          match x.pat_desc with
+          | Pid id -> coq_var id.ts_id.id_str
+          | _ -> assert false)
+        ts
+  | _ -> assert false
 
 let gen_spec_args = function
   | Sast.Unit -> (
       match !backend with
-      | CFML -> [ coq_tt_tv ]
-      | Iris -> [ tv "#()" coq_typ_unit false ])
+      | CFML -> coq_tt_tv
+      | Iris -> tv "#()" coq_typ_unit false)
   | Wildcard -> assert false (* TODO *)
   | Ghost ts -> gen_args ts
   | Value v -> gen_args v.arg_ocaml
@@ -144,24 +154,25 @@ let gen_poly is_pure poly_vars =
     let nm = String.capitalize_ascii v.var_name in
     let inhab = (to_inh nm, coq_app (inhab ()) (coq_var nm)) in
     let enc = (to_enc nm, coq_app enc (coq_var nm)) in
-    let eq = (to_eq_dec nm, coq_app eq_dec (coq_var nm)) in
     let param =
       if is_pure || !backend <> CFML then [ inhab ] else [ inhab; enc ]
     in
-    let param = if !backend = Iris then eq :: param else param in
     List.map (fun (n, c) -> tv n c true) param
   in
   let properties = List.concat_map type_properties types in
   types @ properties
 
-let is_infix v =
-  let v = unicode_mapper v.id_str in
-  String.starts_with ~prefix:"infix" v
+let fixity_mapper v =
+  match v.id_fixity with
+  | Normal -> v.id_str
+  | Prefix -> if v.id_str = "-" then "minus" else assert false
+  | Infix | Mixfix | Let -> id_mapper v.id_str
+
+let is_infix v = match v.id_fixity with Infix -> true | _ -> false
 
 let get_infix t =
   match t.t_node with
-  | Tvar (Qid v) | Ttyapply (Qid v, _) ->
-      List.nth (String.split_on_char ' ' v.id_str) 1
+  | Tvar (Qid v) | Ttyapply (Qid v, _) -> v.id_str
   | _ -> assert false
 
 let rec collect_tvars_pty tbl = function
@@ -172,6 +183,15 @@ let rec collect_tvars_pty tbl = function
       collect_tvars_pty tbl t2
 
 let collect_tvars tbl ts = collect_tvars_pty tbl ts.ts_ty
+
+let rec collect_tvars_pat tbl p =
+  match p.pat_desc with
+  | Pwild -> ()
+  | Pid ts -> collect_tvars tbl ts
+  | Ptuple l -> List.iter (collect_tvars_pat tbl) l
+  | Pcast (p, ty) ->
+      collect_tvars_pat tbl p;
+      collect_tvars_pty tbl ty
 
 let rec only_uses_named tbl = function
   | PTtyvar v -> IdTable.mem tbl v.id_tag
@@ -231,14 +251,14 @@ let rec coq_term tvar_tbl t =
   | Tquant (q, ids, t) ->
       let f = match q with Tforall -> coq_foralls | Texists -> coq_exists in
       let () = List.iter (collect_tvars tvar_tbl) ids in
-      let ids = List.concat_map gen_args ids in
+      let ids = List.map gen_args ids in
       f ids (coq_term t)
   | Tlambda (vl, t, _) ->
-      let () = List.iter (collect_tvars tvar_tbl) vl in
-      coq_funs (List.concat_map gen_args vl) (coq_term t)
-  | Tlet (vs, t1, t2) ->
-      let vs = List.map (fun x -> coq_var x.ts_id.id_str) vs in
-      Coq_lettuple (vs, coq_term t1, coq_term t2)
+      let () = List.iter (collect_tvars_pat tvar_tbl) vl in
+      coq_funs (List.map gen_args_pat vl) (coq_term t)
+  | Tlet (pat, t1, t2) ->
+      let pat = let_pat pat in
+      Coq_lettuple (pat, coq_term t1, coq_term t2)
   | Told t -> coq_term t
   | Ttrue -> coq_bool_true
   | Tfalse -> coq_bool_false
@@ -313,8 +333,8 @@ let gen_spec triple =
   let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
   let tbl = gen_tbl all_ts in
   let poly = gen_poly false triple.triple_poly in
-  let args = List.concat_map gen_spec_args triple.triple_args in
-  let all_vars = List.concat_map gen_args all_ts in
+  let args = List.map gen_spec_args triple.triple_args in
+  let all_vars = List.map gen_args all_ts in
   let mk_condition tl = hstars (List.map (cfml_term tbl) tl) in
   let pre = mk_condition triple.triple_pre in
   let ex, posts = triple.triple_post in
@@ -346,37 +366,45 @@ let gen_spec triple =
   coq_foralls poly triple_vars
 
 let mk_enc s = "_Enc_" ^ s
+let val_var = Coq_var "val"
 
-let rec sep_def d =
-  match d.d_node with
-  | Type tdef when tdef.type_ocaml && !backend = Iris -> []
-  | Type tdef ->
-      let ty =
-        coq_impls (List.map (fun _ -> Coq_type) tdef.type_args) Coq_type
-      in
-      let nm = tdef.type_name.id_str in
-      let poly = List.map (fun x -> tv x.id_str Coq_type true) tdef.type_args in
-      let ty_decl = tv nm ty false in
-      let enc_param =
-        if tdef.type_ocaml then
-          [
-            Coqtop_instance
-              (tv ("__Enc_" ^ nm) (coq_app enc (coq_var nm)) false, None, false);
-          ]
-        else []
-      in
-      let def =
-        match tdef.type_def with
-        | Abstract -> Coqtop_param ty_decl
-        | Alias t ->
-            let t = var_of_ty t in
-            let poly =
-              List.map
-                (fun x -> tv (String.capitalize_ascii x.id_str) Coq_type false)
-                tdef.type_args
-            in
+let tdef tdef =
+  let ty = coq_impls (List.map (fun _ -> Coq_type) tdef.type_args) Coq_type in
+  let nm = tdef.type_name.id_str in
+  let poly =
+    List.map
+      (fun x -> tv (String.capitalize_ascii x.id_str) Coq_type false)
+      tdef.type_args
+  in
+  let ty_decl = tv nm ty false in
+  let enc_param =
+    if tdef.type_ocaml && !backend = CFML then
+      [
+        Coqtop_instance
+          (tv ("__Enc_" ^ nm) (coq_app enc (coq_var nm)) false, None, false);
+      ]
+    else []
+  in
+  match !backend with
+  | Iris -> empty_decls
+  | CFML -> (
+      match tdef.type_def with
+      | Abstract ->
+          let def = Coqtop_param ty_decl in
+          { empty_decls with abstract = def :: enc_param }
+      | Alias t ->
+          let t = var_of_ty t in
+          let poly =
+            List.map
+              (fun x -> tv (String.capitalize_ascii x.id_str) Coq_type false)
+              tdef.type_args
+          in
+          let def =
             Coqtop_fundef (false, [ (tdef.type_name.id_str, poly, Coq_type, t) ])
-        | Record r ->
+          in
+          { empty_decls with abstract = enc_param; concrete = [ def ] }
+      | Record r ->
+          let def =
             Coqtop_record
               {
                 coqind_name = nm;
@@ -388,8 +416,20 @@ let rec sep_def d =
                     (fun (s, t) -> tv s.Ident.id_str (var_of_ty t) false)
                     r;
               }
-      in
-      [ def ] @ enc_param
+          in
+          { empty_decls with abstract = enc_param; concrete = [ def ] })
+
+let rec combine x acc =
+  let defs = sep_def x in
+  {
+    abstract = defs.abstract @ acc.abstract;
+    concrete = defs.concrete @ acc.concrete;
+    obligations = defs.obligations @ acc.obligations;
+  }
+
+and sep_def d =
+  match d.d_node with
+  | Type t -> tdef t
   | Pred pred ->
       let args = List.rev pred.pred_args in
       let poly = gen_poly false pred.pred_poly in
@@ -400,40 +440,51 @@ let rec sep_def d =
             else var_of_ty v.ts_ty)
           args
       in
-
       let t = coq_impls types (hprop ()) in
       let with_poly = coq_foralls poly t in
-      [ Coqtop_param (tv (valid_coq_id pred.pred_name.id_str) with_poly false) ]
+      let param = tv (valid_coq_id pred.pred_name.id_str) with_poly false in
+      { empty_decls with abstract = coqtop_params [ param ] }
   | Triple triple ->
-      let fun_def =
-        tv ("_" ^ triple.triple_name.id_str) Formula.func_type false
-      in
+      let val_nm = triple.triple_name.id_str in
+      let fun_def = tv ("_" ^ val_nm) val_var false in
       let fun_triple = gen_spec triple in
       let triple_name = to_triple triple.triple_name.id_str in
-      coqtop_params [ fun_def; tv triple_name fun_triple false ]
+      let params =
+        coqtop_params [ tv triple_name (Coq_var triple_name) false ]
+      in
+      let def = [ coqtop_def_untyped triple_name fun_triple ] in
+      {
+        abstract = coqtop_params [ fun_def ];
+        concrete = def;
+        obligations = params;
+      }
   | Val v ->
       let fun_def = tv ("_" ^ v.vname.id_str) Formula.func_type false in
-      coqtop_params [ fun_def ]
+      { empty_decls with abstract = coqtop_params [ fun_def ] }
   | Function f -> (
       if !is_stdlib && (is_infix f.fun_name || f.fun_name.id_str = "not") then
-        []
+        empty_decls
       else
         let name = valid_coq_id f.fun_name.id_str in
         let args = f.fun_params in
         let ret = f.fun_ret in
         let ret_coq = var_of_ty ret in
-        let args_coq = List.concat_map gen_args args in
+        let args_coq = List.map gen_args args in
         let tbl = gen_tbl f.fun_params in
         let def = Option.map (coq_term tbl) f.fun_def in
         let poly_types = gen_poly true f.fun_tvars in
         match def with
         | Some d ->
             let coq_def = (name, poly_types @ args_coq, ret_coq, d) in
-            if f.fun_rec then [ coqtop_fixdef coq_def ]
-            else [ coqtop_fundef coq_def ]
+            if f.fun_rec then
+              { empty_decls with concrete = [ coqtop_fixdef coq_def ] }
+            else { empty_decls with concrete = [ coqtop_fundef coq_def ] }
         | None ->
             let poly_args = coq_foralls (poly_types @ args_coq) ret_coq in
-            coqtop_params [ tv name poly_args false ])
+            {
+              empty_decls with
+              abstract = coqtop_params [ tv name poly_args false ];
+            })
   | Axiom a ->
       let is_pure =
         match a.sax_term with [ Logical _ ] -> true | _ -> false
@@ -447,13 +498,25 @@ let rec sep_def d =
             himpl hempty t
       in
       let poly_vars = gen_poly is_pure a.sax_tvars in
-      [ Coqtop_axiom (tv a.sax_name.id_str (coq_foralls poly_vars t) false) ]
+      let t = coq_foralls poly_vars t in
+      let def = coqtop_fundef (a.sax_name.id_str, [], Coq_wild, t) in
+      let ax =
+        Coqtop_axiom (tv a.sax_name.id_str (Coq_var a.sax_name.id_str) false)
+      in
+      { empty_decls with concrete = [ def ]; obligations = [ ax ] }
   | Module (nm, l) ->
-      let statements = List.concat_map sep_def l in
+      let statements = List.fold_right combine l empty_decls in
       let nm_var = valid_coq_id nm.id_str in
       let m = Coqtop_module (nm_var, [], Mod_cast_free, Mod_def_declare) in
-      (m :: statements) @ [ Coqtop_end nm_var ]
-  | Import l -> [ Coqtop_import [ qid_to_string l ] ]
+      let end_mod = [ Coqtop_end nm_var ] in
+      {
+        abstract = (m :: statements.abstract) @ end_mod;
+        concrete = (m :: statements.concrete) @ end_mod;
+        obligations = (m :: statements.obligations) @ end_mod;
+      }
+  | Import l ->
+      let l = [ Coqtop_import [ qid_to_string l ] ] in
+      { abstract = l; concrete = l; obligations = l }
 
 let import_stdlib () =
   match !backend with
@@ -509,14 +572,7 @@ let import_sep_semantics stdlib =
             "iris.prelude.options";
           ]
     in
-    Coqtop_require_import l
-    ::
-    (if !backend = Iris then
-       [
-         Coqtop_section "spec";
-         Coqtop_custom "Context `{!heapGS Σ}. Notation iProp := (iProp Σ).";
-       ]
-     else [])
+    [ Coqtop_require_import l ]
 
 let sep_defs ~stdlib ~sep_logic file =
   let () = is_stdlib := stdlib in
@@ -524,7 +580,14 @@ let sep_defs ~stdlib ~sep_logic file =
   let imports =
     [ Coqtop_set_implicit_args ]
     @ import_gospelstdlib stdlib
-    @ [ Coqtop_require_import [ "Stdlib.ZArith.BinIntDef" ] ]
+    @ [
+        Coqtop_require_import
+          [
+            "Stdlib.Floats.Floats";
+            "Stdlib.ZArith.BinIntDef";
+            "Stdlib.Strings.Ascii";
+          ];
+      ]
     @ import_sep_semantics stdlib
     @
     match !backend with
@@ -535,14 +598,43 @@ let sep_defs ~stdlib ~sep_logic file =
           Coqtop_custom "Local Open Scope comp_scope.";
         ]
   in
-  let tops = List.concat_map sep_def file.Gospel.fdefs in
+  let abs, specs, specs_typ, obl = ("Abs", "Defs", "D", "Obligations") in
+  let acc =
+    {
+      abstract = [ Coqtop_end abs ];
+      concrete = [];
+      obligations = [ Coqtop_end obl ];
+    }
+  in
+  let defs = List.fold_right combine file.Gospel.fdefs acc in
+  let abs_mod =
+    Coqtop_module_type (abs, [], Mod_def_declare) :: defs.abstract
+  in
+  let abs_arg = "S" in
+  let concrete_args = [ ([ abs_arg ], Mod_typ_var abs) ] in
+  let abs_imp = Coqtop_import [ abs_arg ] in
+  let concrete_typ =
+    Coqtop_module_type (specs_typ, concrete_args, Mod_def_declare)
+    :: abs_imp :: defs.concrete
+    @ [ Coqtop_end specs_typ ]
+  in
+  let concrete =
+    Coqtop_module (specs, concrete_args, Mod_cast_free, Mod_def_declare)
+    :: abs_imp :: defs.concrete
+    @ [ Coqtop_end specs ]
+  in
+  let conc_arg = "C" in
+  let obl_args =
+    concrete_args @ [ ([ conc_arg ], Mod_typ_app [ specs_typ; abs_arg ]) ]
+  in
+  let imp = [ Coqtop_import [ conc_arg ]; abs_imp ] in
+  let obligations =
+    (Coqtop_module_type (obl, obl_args, Mod_def_declare) :: imp)
+    @ defs.obligations
+  in
+  let tops = abs_mod @ concrete_typ @ concrete @ obligations in
   let top =
-    if !is_stdlib then
-      Coqtop_module_type ("Stdlib", [], Mod_def_declare)
-      :: Coqtop_param (tv "set" (coq_impl_types 1) false)
-      :: tops
-      @ [ Coqtop_end "Stdlib" ]
-    else if !backend = Iris then tops @ [ Coqtop_end "spec" ]
+    if !is_stdlib then Coqtop_param (tv "set" (coq_impl_types 1) false) :: tops
     else tops
   in
   imports @ top
