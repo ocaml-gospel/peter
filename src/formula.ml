@@ -75,13 +75,13 @@ let enc_of_typed typ c = coq_apps (coq_at (coq_var enc)) [ typ; coq_wild; c ]
 let enc_arg aname =
   let eaname = "E" ^ aname in
   (* TODO: check conflicts *)
-  tv eaname (enc_type (coq_var aname)) true
+  tv eaname (enc_type (coq_var aname))
 
 (* enc_args builds [(A1:Type) (EA1:Enc A1) .. (xn:Type) (EAn:Enc An)] from [A1... An]*)
 
 let enc_args names =
   List.flatten
-    (List.map (fun aname -> [ tv aname Coq_type false; enc_arg aname ]) names)
+    (List.map (fun aname -> [ tv aname typ_type; enc_arg aname ]) names)
 
 (** Universal [forall (A1:Type) (EA1:Enc A1) .. (xn:Type) (EAn:Enc An), c] *)
 
@@ -144,11 +144,11 @@ let hdata c_concrete c_abstract =
 
 (** Type of pure post-conditions [_ -> Prop] *)
 
-let wild_to_prop = coq_pred Coq_wild
+let wild_to_prop = coq_pred coq_wild
 
 (** Type of imperative post-conditions [_ -> hrop] *)
 
-let wild_to_hprop = Coq_impl (Coq_wild, hprop ())
+let wild_to_hprop = Coq_impl (coq_wild, hprop ())
 
 (** Hprop entailment [H1 ==> H2] *)
 
@@ -156,7 +156,7 @@ let himpl h1 h2 = coq_infix h1 "==>" h2
 
 (** Specialized Hprop entailment [H1 ==> Q2 tt] *)
 
-let himpl_unit h1 q2 = himpl h1 (Coq_app (q2, coq_tt))
+let himpl_unit h1 q2 = himpl h1 (Coq_app (q2, tt))
 
 (** Postcondition entailment [Q1 ===> Q2] *)
 
@@ -164,7 +164,7 @@ let qimpl q1 q2 = coq_infix q1 "===>" q2
 
 (** Specialized post-conditions [fun (_:unit) => H], i.e. [# H] *)
 
-let post_unit h = coq_fun (tv "_" coq_typ_unit false) h
+let post_unit h = coq_fun (tv "_" typ_unit) h
 
 (** Separating conjunction [H1 * H2] *)
 
@@ -177,7 +177,7 @@ let hstar h1 h2 =
 let qstar q1 h2 =
   let temp = "res__" in
   (* TODO: clash check *)
-  coq_fun (tv temp coq_wild false) (hstar (coq_app q1 (coq_var temp)) h2)
+  coq_fun (tv temp coq_wild) (hstar (coq_app q1 (coq_var temp)) h2)
 
 (** Pure heap predicates [ \[P] ] *)
 
@@ -209,7 +209,7 @@ let qwand q1 q2 = coq_infix q1 "\\--*" q2
 (** Base data [hsingle c1 c2] *)
 
 let hsingle c1 c2 =
-  coq_apps (coq_var_at "CFML.SepBase.hsingle") [ c1; Coq_wild; c2 ]
+  coq_apps (coq_var_at "CFML.SepBase.hsingle") [ c1; coq_wild; c2 ]
 
 (** Empty heap predicate [[]] *)
 
@@ -224,7 +224,7 @@ let hstars hs =
 
 (** Lifted existentials [\exists x, H] *)
 
-let hexists xname xtype h = Coq_quant (Hexists, tv xname xtype false, h)
+let hexists xname xtype h = Coq_quant (Hexists, [ tv xname xtype ], h)
 
 (** Lifted existentials [\exists x, H], alternative *)
 
@@ -239,7 +239,7 @@ let hexistss x_names_types h =
 
 (** Lifted universal [\forall x, H] *)
 
-let hforall xname xtype h = Coq_quant (Hforall, tv xname xtype false, h)
+let hforall xname xtype h = Coq_quant (Hforall, [ tv xname xtype ], h)
 
 (** Lifted universal [\forall x, H], alternative *)
 
@@ -251,11 +251,11 @@ let hforalls x_names_types h = List.fold_right hforall_one x_names_types h
 
 (** Precise type of formulae [hprop->(T->hprop)->Prop] *)
 
-let formula_type_of c = coq_impls [ hprop (); Coq_impl (c, hprop ()) ] Coq_prop
+let formula_type_of c = coq_impls [ hprop (); Coq_impl (c, hprop ()) ] typ_prop
 
 (** Generic type of formulae [hprop->(_->hprop)->Prop] *)
 
-let formula_type = formula_type_of Coq_wild
+let formula_type = formula_type_of coq_wild
 
 (** Application of a formula [F _ _ Q] *)
 
@@ -269,23 +269,18 @@ let himpl_formula_app h f q = himpl h (formula_app f q)
 *)
 
 let formula_def aname qname c =
-  let typ_a = Coq_type in
+  let typ_a = typ_type in
   let typ_q = coq_impl (coq_var aname) (hprop ()) in
-  coq_funs [ tv aname typ_a false; enc_arg aname; tv qname typ_q false ] c
+  coq_funs [ tv aname typ_a; enc_arg aname; tv qname typ_q ] c
 
 (** Construction of a proposition of the form
     [forall (H:hprop) A (EA:enc A) (Q:A->hprop) => P] *)
 
 let forall_prepost h aname qname p =
-  let typ_a = Coq_type in
+  let typ_a = typ_type in
   let typ_q = coq_impl (coq_var aname) (hprop ()) in
   coq_foralls
-    [
-      tv h (hprop ()) false;
-      tv aname typ_a false;
-      enc_arg aname;
-      tv qname typ_q false;
-    ]
+    [ tv h (hprop ()); tv aname typ_a; enc_arg aname; tv qname typ_q ]
     p
 
 (* TODO: check which of these bindings are actually needed *)

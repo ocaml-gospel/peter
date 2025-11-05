@@ -126,15 +126,9 @@ let binding x t = block (x ^^ spacecolon) (space ^^ t) empty
 (* Expressions. *)
 
 let rec expr0 = function
-  | Coq_metavar s -> string ("COQ_META[" ^ s ^ "]")
   | Coq_var s -> string s
-  | Coq_nat n -> parens (string (string_of_int n)) ^^ string "%nat"
   | Coq_int n -> string (string_of_int n)
   | Coq_string s -> dquotes (string s)
-  | Coq_wild -> string "_"
-  | Coq_prop -> string "Prop"
-  | Coq_type -> string "Type"
-  | Coq_tuple [] -> expr coq_tt
   | Coq_tuple es -> tuple expr es
   | Coq_set (v, t) -> (
       match !backend with
@@ -147,11 +141,9 @@ let rec expr0 = function
   | Coq_proj (f, e1) ->
       (* less well supported:  expr e1 ^^ dot ^^ string f *)
       parens (app (string f) (expr e1))
-  | Coq_annot (e1, e2) -> parens (binding (expr e1) (expr e2))
-  | ( Coq_app _ | Coq_tag _ | Coq_impl _ | Coq_lettuple _ | Coq_quant _
-    | Coq_fix _ | Coq_fun _ | Coq_if _ | Coq_match _ | Coq_infix _ ) as e ->
+  | ( Coq_app _ | Coq_impl _ | Coq_lettuple _ | Coq_quant _ | Coq_fun _
+    | Coq_if _ | Coq_match _ | Coq_infix _ ) as e ->
       parens (expr e)
-  | Coq_par e -> parens (expr e)
   | Coq_sep e -> (
       match !backend with CFML -> sep_expr_cfml e | Iris -> sep_expr_iris e)
 
@@ -214,21 +206,6 @@ and sep_expr_iris = function
 and expr1 = function
   | Coq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
   | Coq_infix (e1, v, e2) -> expr0 e1 ^^ space ^^ string v ^^ space ^^ expr0 e2
-  | Coq_tag (tag, args, _, e) ->
-      (* TODO: deprecated *)
-      let stag =
-        if args = [] then string tag
-        else parens (apps (string tag :: List.map expr0 args))
-      in
-      apps
-        [
-          string "CFML.CFPrint.tag";
-          (* @ *)
-          stag;
-          (* FUTURE USE: label l;*)
-          (* string "_"; *)
-          expr0 e;
-        ]
   | e -> expr0 e
 
 and expr2 = function
@@ -242,7 +219,7 @@ and expr3 = function
         (break 1 ^^ expr e1)
         (break 1 ^^ string "in")
       ^/^ expr3 e2
-  | Coq_quant (q, { var_name = x; var_type = e1; var_impl }, e2) ->
+  | Coq_quant (q, vars, e2) ->
       let quant =
         match q with
         | Forall -> "forall"
@@ -250,35 +227,19 @@ and expr3 = function
         | Hforall -> ( match !backend with CFML -> "\\forall" | Iris -> "∀")
         | Hexists -> ( match !backend with CFML -> "\\exists" | Iris -> "∃")
       in
-      let start, _end = if var_impl then (lbrace, rbrace) else (empty, empty) in
+      let args tv =
+        block
+          (string quant ^^ space ^^ string tv.var_name ^^ spacecolon)
+          (break 1 ^^ expr tv.var_type)
+          (break 1)
+      in
+      concat_map args vars ^^ comma ^^ expr3 e2
+  | Coq_fun (var, e2) ->
       block
-        (string quant ^^ space ^^ start ^^ string x ^^ spacecolon)
-        (break 1 ^^ expr e1 ^^ _end ^^ comma)
-        empty
-      ^/^ expr3 e2
-  | Coq_fun ({ var_name = x; var_type = e1; var_impl }, e2) ->
-      let start, _end = if var_impl then (lbrace, rbrace) else (empty, empty) in
-      block
-        (string "fun" ^^ space ^^ start ^^ string x ^^ spacecolon)
-        (break 1 ^^ expr e1 ^^ _end)
+        (string "fun" ^^ space ^^ lbracket ^^ string var.var_name ^^ spacecolon)
+        (break 1 ^^ expr var.var_type)
         (break 1 ^^ doublearrow)
       ^/^ expr3 e2
-  | Coq_fix (f, n, crettype, ebody) ->
-      let rec get_args_body nb c =
-        if nb = 0 then ([], c)
-        else
-          match c with
-          | Coq_fun (xt, c1) ->
-              let xts, body = get_args_body (nb - 1) c1 in
-              (xt :: xts, body)
-          | _ -> failwith "Coq_fix encoding error"
-      in
-      let xts, body = get_args_body n ebody in
-      block
-        (string "fix" ^^ space ^^ string f ^^ space ^^ pvars xts ^^ spacecolon)
-        (break 1 ^^ expr crettype)
-        (break 1 ^^ colonequals)
-      ^/^ expr3 body
   | Coq_if (e0, e1, e2) ->
       block
         (string "if" ^^ space ^^ expr e0 ^^ space ^^ string "then")
@@ -312,63 +273,13 @@ and var { var_name = x; var_type = t; _ } = binding (string x) (expr t)
 
 and pvar xt =
   let v = var xt in
-  space ^^ if xt.var_impl then braces v else parens v
+  space ^^ parens v
 
 and pvars xts = group (concat_map pvar xts)
 
 (* A list of field type declarations, separated with semicolons. *)
 
 let fields_type xts = separate_map (semi ^^ break 1) var xts
-
-(* -------------------------------------------------------------------------- *)
-
-(* Module types. *)
-
-let rec mod_typ0 = function
-  | Mod_typ_var x -> string x
-  | (Mod_typ_app _ | Mod_typ_with_def _ | Mod_typ_with_mod _) as mt ->
-      parens (mod_typ mt)
-
-and mod_typ1 = function
-  | Mod_typ_app xs -> separate_map space string xs
-  | mt -> mod_typ0 mt
-
-and mod_typ2 = function
-  | Mod_typ_with_def (mt, x, e) ->
-      mod_typ2 mt
-      ^/^ block
-            (string "with Definition " ^^ string x ^^ space ^^ colonequals)
-            (break 1 ^^ expr e)
-            empty
-  | Mod_typ_with_mod (mt, x, y) ->
-      mod_typ2 mt ^/^ sprintf "with Module %s := %s " x y
-  | mt -> mod_typ1 mt
-
-and mod_typ mt = mod_typ2 mt
-
-(* Module bindings. *)
-
-let mod_binding (xs, mt) = binding (separate_map space string xs) (mod_typ mt)
-let pmod_binding mb = space ^^ parens (mod_binding mb)
-let pmod_bindings mbs = group (concat_map pmod_binding mbs)
-
-(* Module expressions. *)
-
-let mod_expr xs = separate_map space string xs
-
-(* Module definitions. *)
-
-let mod_def = function
-  | Mod_def_inline me ->
-      block (space ^^ colonequals) (break 1 ^^ mod_expr me) dot
-  | Mod_def_declare -> dot
-
-(* Module casts. *)
-
-let mod_cast = function
-  | Mod_cast_exact mt -> spacecolon ^^ space ^^ mod_typ mt
-  | Mod_cast_super mt -> space ^^ string "<:" ^^ space ^^ mod_typ mt
-  | Mod_cast_free -> empty
 
 (* -------------------------------------------------------------------------- *)
 
@@ -383,7 +294,8 @@ let definition x d1 =
 (* A parameter, without a leading keyword, but with a leading space.
    [ x : d1.]. *)
 
-let parameter x d1 = block (space ^^ x ^^ spacecolon) (break 1 ^^ d1) dot
+let parameter nm ret =
+  block (space ^^ string nm ^^ spacecolon) (break 1 ^^ expr1 ret) empty
 
 (* The right-hand side of a record declaration. [ Foo {| ... |}]. *)
 
@@ -419,107 +331,59 @@ let inductive_lhs rhs r =
          sprintf "(* %s *)" x
 *)
 
-let implicit (x, i) =
-  match i with
-  | Coqi_maximal -> braces (string x)
-  | Coqi_implicit -> brackets (string x)
-  | Coqi_explicit -> string x
+let tvars _ = assert false
 
 (* -------------------------------------------------------------------------- *)
 
 (* Toplevel elements. *)
 
 let rec top_internal = function
-  | Coqtop_def ({ var_name = x; var_type = e1; _ }, e2) ->
-      string "Definition" ^^ definition (string x) (expr e1) ^/^ expr e2 ^^ dot
-  | Coqtop_fundef (isrec, defs) ->
-      let first_keyword, other_keyword =
-        if isrec then ("Fixpoint", " with") else ("Definition", "Definition")
+  | Coqtop_def instance ->
+      let first_keyword =
+        if instance.def_rec then "Fixpoint" else "Definition"
       in
-      let i = ref 0 in
-      (* TODO: need concat_mapi *)
-      let mk_def (fname, typed_args, ret_typ, body) =
-        let keyword =
-          incr i;
-          if !i = 1 then first_keyword else other_keyword
-        in
-        string keyword ^^ space ^^ string fname ^^ space ^^ pvars typed_args
-        ^^ spacecolon ^^ space ^^ expr ret_typ ^^ colonequals ^^ break 1
-        ^^ expr body (* TODO: ident?*)
-      in
-      concat_map mk_def defs ^^ dot
-  | Coqtop_param { var_name = x; var_type = e1; _ } ->
-      string "Parameter" ^^ parameter (string x) (expr e1)
-  | Coqtop_axiom { var_name = x; var_type = e1; _ } ->
-      string "Axiom" ^^ parameter (string x) (expr e1)
-  | Coqtop_instance ({ var_name = x; var_type = e1; _ }, e2o, global) -> (
-      string ((if global then "Global " else "") ^ "Instance")
-      ^^
-      match e2o with
-      | None -> parameter (string x) (expr e1) ^^ string " Admitted" ^^ dot
-      | Some e2 -> definition (string x) (expr e1) ^/^ expr e2 ^^ dot)
-  | Coqtop_lemma { var_name = x; var_type = e1; _ } ->
-      string "Lemma" ^^ parameter (string x) (expr e1)
-  | Coqtop_proof s -> sprintf "Proof. %s Qed." s
+
+      let keyword = first_keyword in
+      string keyword ^^ space ^^ string instance.def_nm ^^ space
+      ^^ tvars instance.def_tvars ^^ spacecolon ^^ space
+      ^^ expr instance.def_return ^^ colonequals ^^ break 1
+      ^^ expr instance.def_body
+  | Coqtop_param param ->
+      string "Parameter" ^^ parameter param.param_nm param.param_ret
+  | Coqtop_axiom param ->
+      string "Axiom" ^^ parameter param.param_nm param.param_ret
+  | Coqtop_instance instance ->
+      string "Global Declare Instance"
+      ^^ parameter instance.inst_nm instance.inst_typ
   | Coqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r ^^ dot
-  | Coqtop_ind rs ->
-      string "Inductive"
-      ^^ separate_map
-           (hardline ^^ hardline ^^ string "with")
-           (inductive_lhs sum_rhs) rs
-      ^^ dot
-  (* DEPRECATED?
-     | Coqtop_label (x, n) ->
-         sprintf "Notation \"''%s'\" := (%s) (at level 0) : atom_scope."
-           x (value_variable n)*)
-  (* DEPRECATED
-     | Coqtop_implicit (x, xs) ->
-         string "Implicit Arguments " ^^
-         string x ^/^
-         brackets (flow_map space deprecated_implicit xs)
-         ^^ dot
-  *)
-  | Coqtop_implicit (x, xs) ->
-      string "Arguments " ^^ string x
-      ^/^ (if xs = [] then string ": clear implicits"
-           else flow_map space implicit xs)
-      ^^ dot
-  | Coqtop_register (db, x, v) ->
-      sprintf "Hint Extern 1 (Register %s %s) => WPHeader_Provide %s." db x v
-  | Coqtop_hint_constructors (xs, base) ->
-      string "Hint Constructors "
-      ^^ flow_map space string xs ^^ spacecolon ^/^ string base ^^ dot
-  | Coqtop_hint_resolve (xs, base) ->
-      string "Hint Resolve " ^^ flow_map space string xs ^^ spacecolon
-      ^/^ string base ^^ dot
-  | Coqtop_hint_unfold (xs, base) ->
-      string "Hint Unfold " ^^ flow_map space string xs ^^ spacecolon
-      ^/^ string base ^^ dot
-  | Coqtop_require xs -> string "Require " ^^ flow_map space string xs ^^ dot
   | Coqtop_import xs -> string "Import " ^^ flow_map space string xs ^^ dot
   | Coqtop_require_import xs ->
       string "Require Import " ^^ flow_map space string xs ^^ dot
-  | Coqtop_set_implicit_args -> sprintf "Set Implicit Arguments."
-  | Coqtop_text s -> sprintf "%s" s
-  | Coqtop_declare_module (x, mt) ->
-      string "Declare Module" ^^ parameter (string x) (mod_typ mt)
-  | Coqtop_module (x, bs, c, d) ->
-      string "Module" ^^ space ^^ string x ^^ pmod_bindings bs ^^ mod_cast c
-      ^^ mod_def d
+  | Coqtop_module (x, defs) ->
+      string "Module" ^^ space ^^ string x ^^ dot ^^ hardline ^^ tops defs
+      ^^ string "End" ^^ string x
   | Coqtop_module_type (x, bs, d) ->
-      string "Module Type" ^^ space ^^ string x ^^ pmod_bindings bs ^^ mod_def d
+      string "Module Type" ^^ space ^^ string x ^^ spacecolon ^^ space
+      ^^ string bs ^^ dot ^^ hardline ^^ tops d ^^ string "End" ^^ string x
   | Coqtop_module_type_include x -> sprintf "Include Type %s." x
   | Coqtop_end x -> sprintf "End %s." x
   | Coqtop_custom x -> sprintf "%s" x
   | Coqtop_section x -> sprintf "Section %s." x
   | Coqtop_context xs -> sprintf "Context" ^^ space ^^ pvars xs ^^ dot
-
-(* LATER: make section module and module_type have their arguments as contents,
-   instead of using Coqtop_end *)
-(* LATER: use a function to factorize the pattern of contents ending with "End" *)
+  | Coqtop_encoder _ -> assert false
 
 and top t = group (top_internal t)
-and tops ts = concat_map (fun t -> top t ^^ hardline2) ts
+
+and tops ts =
+  let first = ref true in
+  concat_map
+    (fun t ->
+      (if !first then (
+         first := true;
+         empty)
+       else hardline2)
+      ^^ top t ^^ dot)
+    ts
 
 (* -------------------------------------------------------------------------- *)
 

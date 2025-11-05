@@ -87,28 +87,19 @@ let rec qid_to_string =
   | Qid id -> valid_string id
   | Qdot (q, id) -> qid_to_string q ^ "." ^ valid_string id
 
-let var_of_ty t =
-  let rec var_of_ty = function
+let coq_ty t =
+  let rec coq_ty = function
     | PTtyapp (v, l) ->
-        coq_apps (coq_var (qid_to_string v.app_qid)) (List.map var_of_ty l)
-    | PTarrow (t1, t2) -> coq_impl (var_of_ty t1) (var_of_ty t2)
+        coq_apps (coq_var (qid_to_string v.app_qid)) (List.map coq_ty l)
+    | PTarrow (t1, t2) -> coq_impl (coq_ty t1) (coq_ty t2)
     | PTtyvar tv -> Coq_var (String.capitalize_ascii tv.id_str)
-    | PTtuple l -> coq_prods (List.map var_of_ty l)
+    | PTtuple l -> coq_prods (List.map coq_ty l)
   in
-  var_of_ty t
+  coq_ty t
 
 let coq_id id = qid_to_string id
-
-let rec is_predicate = function
-  | PTarrow (_, t) -> is_predicate t
-  | PTtyapp ({ app_qid = Qid v; _ }, []) -> Ident.equal v Structure.prop_id
-  | _ -> false
-
 let to_dec = ( ^ ) "Dec_"
-
-let gen_args vs =
-  let v = tv vs.ts_id.id_str (var_of_ty vs.ts_ty) false in
-  v
+let gen_args vs = tv vs.ts_id.id_str (coq_ty vs.ts_ty)
 
 let gen_args_pat p =
   match p.pat_desc with Pid vs -> gen_args vs | _ -> assert false
@@ -128,9 +119,7 @@ let let_pat p =
 
 let gen_spec_args = function
   | Sast.Unit -> (
-      match !backend with
-      | CFML -> coq_tt_tv
-      | Iris -> tv "#()" coq_typ_unit false)
+      match !backend with CFML -> tt_tv | Iris -> tv "#()" typ_unit)
   | Wildcard -> assert false (* TODO *)
   | Ghost ts -> gen_args ts
   | Value v -> gen_args v.arg_ocaml
@@ -146,9 +135,7 @@ let to_eq_dec = ( ^ ) "Eq_"
 
 let gen_poly is_pure poly_vars =
   let types =
-    List.map
-      (fun v -> tv (String.capitalize_ascii v.id_str) Coq_type true)
-      poly_vars
+    List.map (fun v -> tv (String.capitalize_ascii v.id_str) typ_type) poly_vars
   in
   let type_properties v =
     let nm = String.capitalize_ascii v.var_name in
@@ -157,7 +144,7 @@ let gen_poly is_pure poly_vars =
     let param =
       if is_pure || !backend <> CFML then [ inhab ] else [ inhab; enc ]
     in
-    List.map (fun (n, c) -> tv n c true) param
+    List.map (fun (n, c) -> tv n c) param
   in
   let properties = List.concat_map type_properties types in
   types @ properties
@@ -166,7 +153,7 @@ let fixity_mapper v =
   match v.id_fixity with
   | Normal -> v.id_str
   | Prefix -> if v.id_str = "-" then "minus" else assert false
-  | Infix | Mixfix | Let -> id_mapper v.id_str
+  | Infix | Mixfix -> id_mapper v.id_str
 
 let is_infix v = match v.id_fixity with Infix -> true | _ -> false
 
@@ -228,7 +215,7 @@ let rec coq_term tvar_tbl t =
       if only_uses_named tvar_tbl ptys then Coq_var (coq_id q)
       else
         let () = List.iter (collect_tvars_pty tvar_tbl) ptys in
-        let l = List.map var_of_ty ptys in
+        let l = List.map coq_ty ptys in
         let l =
           List.concat_map
             (function
@@ -281,7 +268,7 @@ let cfml_term tbl t =
         hwand (hstars (List.map cfml_term l)) (hstars (List.map cfml_term r))
     | Quant (q, vs, t) ->
         let f = match q with Tforall -> hforalls | Texists -> hexistss in
-        let args = List.map (fun x -> (x.ts_id.id_str, var_of_ty x.ts_ty)) vs in
+        let args = List.map (fun x -> (x.ts_id.id_str, coq_ty x.ts_ty)) vs in
         let t = hstars (List.map cfml_term t) in
         f args t
   in
@@ -294,26 +281,12 @@ let gen_tbl tvars =
 
 let loc_ty =
   let loc_id = Ident.mk_id ~loc:Location.none "loc" in
-  let loc_app =
-    {
-      app_qid = Qid loc_id;
-      app_alias = None;
-      app_model = None;
-      app_mut = false;
-    }
-  in
+  let loc_app = { app_qid = Qid loc_id; app_alias = None; app_mut = false } in
   PTtyapp (loc_app, [])
 
 let val_ty =
   let loc_id = Ident.mk_id ~loc:Location.none "val" in
-  let loc_app =
-    {
-      app_qid = Qid loc_id;
-      app_alias = None;
-      app_model = None;
-      app_mut = false;
-    }
-  in
+  let loc_app = { app_qid = Qid loc_id; app_alias = None; app_mut = false } in
   PTtyapp (loc_app, [])
 
 let triple_val_to_ts = function
@@ -341,7 +314,7 @@ let gen_spec triple =
   let post = mk_condition posts in
   let post_ex =
     List.fold_right
-      (fun v acc -> hexists v.ts_id.id_str (var_of_ty v.ts_ty) acc)
+      (fun v acc -> hexists v.ts_id.id_str (coq_ty v.ts_ty) acc)
       ex post
   in
 
@@ -369,38 +342,31 @@ let mk_enc s = "_Enc_" ^ s
 let val_var = Coq_var "val"
 
 let tdef tdef =
-  let ty = coq_impls (List.map (fun _ -> Coq_type) tdef.type_args) Coq_type in
+  let ty = coq_impls (List.map (fun _ -> typ_type) tdef.type_args) typ_type in
   let nm = tdef.type_name.id_str in
   let poly =
     List.map
-      (fun x -> tv (String.capitalize_ascii x.id_str) Coq_type false)
+      (fun x -> tv (String.capitalize_ascii x.id_str) typ_type)
       tdef.type_args
   in
-  let ty_decl = tv nm ty false in
-  let enc_param =
-    if tdef.type_ocaml && !backend = CFML then
-      [
-        Coqtop_instance
-          (tv ("__Enc_" ^ nm) (coq_app enc (coq_var nm)) false, None, false);
-      ]
-    else []
-  in
+
+  let enc_param = if tdef.type_ocaml && !backend = CFML then [] else [] in
   match !backend with
   | Iris -> empty_decls
   | CFML -> (
       match tdef.type_def with
       | Abstract ->
-          let def = Coqtop_param ty_decl in
+          let def = coqtop_param nm [] ty in
           { empty_decls with abstract = def :: enc_param }
       | Alias t ->
-          let t = var_of_ty t in
+          let t = coq_ty t in
           let poly =
             List.map
-              (fun x -> tv (String.capitalize_ascii x.id_str) Coq_type false)
+              (fun x -> tv (String.capitalize_ascii x.id_str) typ_type)
               tdef.type_args
           in
           let def =
-            Coqtop_fundef (false, [ (tdef.type_name.id_str, poly, Coq_type, t) ])
+            coqtop_def false tdef.type_name.id_str [] [] poly typ_type t
           in
           { empty_decls with abstract = enc_param; concrete = [ def ] }
       | Record r ->
@@ -410,11 +376,9 @@ let tdef tdef =
                 coqind_name = nm;
                 coqind_constructor_name = "_mk_" ^ nm;
                 coqind_targs = poly;
-                coqind_ret = coq_typ_type;
+                coqind_ret = typ_type;
                 coqind_branches =
-                  List.map
-                    (fun (s, t) -> tv s.Ident.id_str (var_of_ty t) false)
-                    r;
+                  List.map (fun (s, t) -> tv s.Ident.id_str (coq_ty t)) r;
               }
           in
           { empty_decls with abstract = enc_param; concrete = [ def ] })
@@ -436,8 +400,7 @@ and sep_def d =
       let types =
         List.mapi
           (fun i v ->
-            if !backend = Iris && i = 1 then var_of_ty val_ty
-            else var_of_ty v.ts_ty)
+            if !backend = Iris && i = 1 then coq_ty val_ty else coq_ty v.ts_ty)
           args
       in
       let t = coq_impls types (hprop ()) in
@@ -468,7 +431,7 @@ and sep_def d =
         let name = valid_coq_id f.fun_name.id_str in
         let args = f.fun_params in
         let ret = f.fun_ret in
-        let ret_coq = var_of_ty ret in
+        let ret_coq = coq_ty ret in
         let args_coq = List.map gen_args args in
         let tbl = gen_tbl f.fun_params in
         let def = Option.map (coq_term tbl) f.fun_def in
