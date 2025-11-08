@@ -1,5 +1,5 @@
 open PPrint
-open Coq
+open Rocq
 
 type backend = Iris | CFML
 
@@ -126,26 +126,25 @@ let binding x t = block (x ^^ spacecolon) (space ^^ t) empty
 (* Expressions. *)
 
 let rec expr0 = function
-  | Coq_var s -> string s
-  | Coq_int n -> string (string_of_int n)
-  | Coq_string s -> dquotes (string s)
-  | Coq_tuple es -> tuple expr es
-  | Coq_set (v, t) -> (
+  | OCaml_type | Gospel_type -> string "Type"
+  | Rocq_var s -> string s
+  | Rocq_int n -> string (string_of_int n)
+  | Rocq_string s -> dquotes (string s)
+  | Rocq_tuple es -> tuple expr es
+  | Rocq_set (v, t) -> (
       match !backend with
       | Iris ->
           lbrace ^^ space ^^ string v ^^ space ^^ bar ^^ space ^^ expr1 t
           ^^ rbrace
       | CFML -> parens (string "fun " ^^ string v ^^ string "=>" ^^ expr0 t))
-  | Coq_record fes ->
+  | Rocq_record fes ->
       record_value (List.map (fun (f, e) -> (string f, expr e)) fes)
-  | Coq_proj (f, e1) ->
+  | Rocq_proj (f, e1) ->
       (* less well supported:  expr e1 ^^ dot ^^ string f *)
       parens (app (string f) (expr e1))
-  | ( Coq_app _ | Coq_impl _ | Coq_lettuple _ | Coq_quant _ | Coq_fun _
-    | Coq_if _ | Coq_match _ | Coq_infix _ ) as e ->
+  | ( Rocq_app _ | Rocq_lettuple _ | Rocq_quant _ | Rocq_fun _ | Rocq_if _
+    | Rocq_match _ | Rocq_infix _ ) as e ->
       parens (expr e)
-  | Coq_sep e -> (
-      match !backend with CFML -> sep_expr_cfml e | Iris -> sep_expr_iris e)
 
 and spec_vars_cfml l =
   let spec_var v =
@@ -167,15 +166,15 @@ and cfml_post rets post =
            ^^ parens (spec_vars_cfml l)
            ^^ string ret_name ^^ string "in" ^^ expr0 post)
 
-and sep_expr_cfml = function
-  | Coq_pure e -> backslash ^^ brackets (expr e)
-  | Coq_hempty -> backslash ^^ lbracket ^^ rbracket
-  | Coq_spec (f, args, pre, rets, post) ->
-      string "SPEC"
-      ^^ parens
-           (string f ^^ space
-           ^^ separate_map (string " ") (fun x -> string x.var_name) args)
-      ^^ break 0 ^^ string "PRE" ^^ expr pre ^^ break 0 ^^ cfml_post rets post
+(* and sep_expr_cfml = function *)
+(*   | Rocq_pure e -> backslash ^^ brackets (expr e) *)
+(*   | Rocq_hempty -> backslash ^^ lbracket ^^ rbracket *)
+(* | Rocq_spec (f, args, pre, rets, post) -> *)
+(*     string "SPEC" *)
+(*     ^^ parens *)
+(*          (string f ^^ space *)
+(*          ^^ separate_map (string " ") (fun x -> string x.var_name) args) *)
+(*     ^^ break 0 ^^ string "PRE" ^^ expr pre ^^ break 0 ^^ cfml_post rets post *)
 
 and iris_rets rets =
   let vars =
@@ -192,60 +191,50 @@ and iris_rets rets =
   separate_map space string vars
   ^^ comma_if_cons ^^ string "RET " ^^ ret ^^ semi ^^ space
 
-and sep_expr_iris = function
-  | Coq_pure e -> corners (expr e)
-  | Coq_hempty -> string "True"
-  | Coq_spec (f, args, pre, rets, post) ->
-      let triple b = b ^^ b ^^ b in
-      triple lbrace ^^ space ^^ expr pre ^^ space ^^ triple rbrace ^^ break 0
-      ^^ string f ^^ space
-      ^^ separate_map (string " ") (fun x -> string x.var_name) args
-      ^^ break 0 ^^ triple lbrace ^^ space ^^ iris_rets rets ^^ expr post
-      ^^ space ^^ triple rbrace
+(* and sep_expr_iris = function *)
+(*   | Rocq_pure e -> corners (expr e) *)
+(*   | Rocq_hempty -> string "True" *)
+(* | Rocq_spec (f, args, pre, rets, post) -> *)
+(*     let triple b = b ^^ b ^^ b in *)
+(*     triple lbrace ^^ space ^^ expr pre ^^ space ^^ triple rbrace ^^ break 0 *)
+(*     ^^ string f ^^ space *)
+(*     ^^ separate_map (string " ") (fun x -> string x.var_name) args *)
+(*     ^^ break 0 ^^ triple lbrace ^^ space ^^ iris_rets rets ^^ expr post *)
+(*     ^^ space ^^ triple rbrace *)
 
 and expr1 = function
-  | Coq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
-  | Coq_infix (e1, v, e2) -> expr0 e1 ^^ space ^^ string v ^^ space ^^ expr0 e2
+  | Rocq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
+  | Rocq_infix (e1, v, e2) -> expr0 e1 ^^ space ^^ string v ^^ space ^^ expr0 e2
   | e -> expr0 e
 
 and expr2 = function
-  | Coq_impl (e1, e2) -> group (expr1 e1 ^^ space ^^ arrow ^/^ expr2 e2)
-  | e -> expr1 e
-
-and expr3 = function
-  | Coq_lettuple (es, e1, e2) ->
+  | Rocq_lettuple (es, e1, e2) ->
       block
         (string "let '" ^^ tuple expr es ^^ space ^^ colonequals)
         (break 1 ^^ expr e1)
         (break 1 ^^ string "in")
-      ^/^ expr3 e2
-  | Coq_quant (q, vars, e2) ->
-      let quant =
-        match q with
-        | Forall -> "forall"
-        | Exists -> "exists"
-        | Hforall -> ( match !backend with CFML -> "\\forall" | Iris -> "∀")
-        | Hexists -> ( match !backend with CFML -> "\\exists" | Iris -> "∃")
-      in
+      ^/^ expr2 e2
+  | Rocq_quant (q, vars, e2) ->
+      let quant = match q with Forall -> "forall" | Exists -> "exists" in
       let args tv =
         block
           (string quant ^^ space ^^ string tv.var_name ^^ spacecolon)
           (break 1 ^^ expr tv.var_type)
           (break 1)
       in
-      concat_map args vars ^^ comma ^^ expr3 e2
-  | Coq_fun (var, e2) ->
+      concat_map args vars ^^ comma ^^ expr2 e2
+  | Rocq_fun (var, e2) ->
       block
         (string "fun" ^^ space ^^ lbracket ^^ string var.var_name ^^ spacecolon)
         (break 1 ^^ expr var.var_type)
         (break 1 ^^ doublearrow)
-      ^/^ expr3 e2
-  | Coq_if (e0, e1, e2) ->
+      ^/^ expr2 e2
+  | Rocq_if (e0, e1, e2) ->
       block
         (string "if" ^^ space ^^ expr e0 ^^ space ^^ string "then")
         (break 1 ^^ expr e1 ^^ break 1)
         (string "else" ^^ break 1 ^^ expr e2)
-  | Coq_match (carg, branches) ->
+  | Rocq_match (carg, branches) ->
       let mk_branch (c1, c2) =
         group
           (string "|" ^^ space ^^ expr c1 ^^ space ^^ doublearrow ^^ space
@@ -257,9 +246,9 @@ and expr3 = function
        ^^ hardline)
         (concat_map mk_branch branches)
         (string "end")
-  | e -> expr2 e
+  | e -> expr1 e
 
-and expr e = expr3 e
+and expr e = expr2 e
 
 (* -------------------------------------------------------------------------- *)
 
@@ -301,21 +290,23 @@ let parameter nm ret =
 
 let record_rhs r =
   space
-  ^^ string r.coqind_constructor_name
+  ^^ string r.rocqind_constructor_name
   ^^ space
-  ^^ braces (fields_type r.coqind_branches)
+  ^^ braces (fields_type r.rocqind_branches)
 
 (* The right-hand side of a sum declaration. [| x1 : T1 | x2 : T2 ...]. *)
 
 let sum_rhs r =
   concat_map
     (fun xt -> hardline ^^ block (string "| ") (var xt) empty)
-    r.coqind_branches
+    r.rocqind_branches
 
 (* The left-hand side of a record or sum declaration. [ foo params : T := rhs]. *)
 
 let inductive_lhs rhs r =
-  definition (string r.coqind_name ^^ pvars r.coqind_targs) (expr r.coqind_ret)
+  definition
+    (string r.rocqind_name ^^ pvars r.rocqind_targs)
+    (expr r.rocqind_ret)
   ^^ rhs r
 
 (* An implicit argument specification. *)
@@ -323,11 +314,11 @@ let inductive_lhs rhs r =
 (* DEPRECATED
    let deprecated_implicit (x, i) =
      match i with
-     | Coqi_maximal ->
+     | Rocqi_maximal ->
          brackets (string x)
-     | Coqi_implicit ->
+     | Rocqi_implicit ->
          string x
-     | Coqi_explicit ->
+     | Rocqi_explicit ->
          sprintf "(* %s *)" x
 *)
 
@@ -338,7 +329,7 @@ let tvars _ = assert false
 (* Toplevel elements. *)
 
 let rec top_internal = function
-  | Coqtop_def instance ->
+  | Rocqtop_def instance ->
       let first_keyword =
         if instance.def_rec then "Fixpoint" else "Definition"
       in
@@ -348,29 +339,29 @@ let rec top_internal = function
       ^^ tvars instance.def_tvars ^^ spacecolon ^^ space
       ^^ expr instance.def_return ^^ colonequals ^^ break 1
       ^^ expr instance.def_body
-  | Coqtop_param param ->
+  | Rocqtop_param param ->
       string "Parameter" ^^ parameter param.param_nm param.param_ret
-  | Coqtop_axiom param ->
+  | Rocqtop_axiom param ->
       string "Axiom" ^^ parameter param.param_nm param.param_ret
-  | Coqtop_instance instance ->
+  | Rocqtop_instance instance ->
       string "Global Declare Instance"
-      ^^ parameter instance.inst_nm instance.inst_typ
-  | Coqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r ^^ dot
-  | Coqtop_import xs -> string "Import " ^^ flow_map space string xs ^^ dot
-  | Coqtop_require_import xs ->
+      ^^ string instance.inst_nm ^^ spacecolon ^^ string instance.inst_class
+  | Rocqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r ^^ dot
+  | Rocqtop_import xs -> string "Import " ^^ flow_map space string xs ^^ dot
+  | Rocqtop_require_import xs ->
       string "Require Import " ^^ flow_map space string xs ^^ dot
-  | Coqtop_module (x, defs) ->
+  | Rocqtop_module (x, defs) ->
       string "Module" ^^ space ^^ string x ^^ dot ^^ hardline ^^ tops defs
       ^^ string "End" ^^ string x
-  | Coqtop_module_type (x, bs, d) ->
+  | Rocqtop_module_type (x, bs, d) ->
       string "Module Type" ^^ space ^^ string x ^^ spacecolon ^^ space
       ^^ string bs ^^ dot ^^ hardline ^^ tops d ^^ string "End" ^^ string x
-  | Coqtop_module_type_include x -> sprintf "Include Type %s." x
-  | Coqtop_end x -> sprintf "End %s." x
-  | Coqtop_custom x -> sprintf "%s" x
-  | Coqtop_section x -> sprintf "Section %s." x
-  | Coqtop_context xs -> sprintf "Context" ^^ space ^^ pvars xs ^^ dot
-  | Coqtop_encoder _ -> assert false
+  | Rocqtop_module_type_include x -> sprintf "Include Type %s." x
+  | Rocqtop_custom x -> sprintf "%s" x
+  | Rocqtop_section x -> sprintf "Section %s." x
+  | Rocqtop_context xs -> sprintf "Context" ^^ space ^^ pvars xs ^^ dot
+  | Rocqtop_class _ -> assert false
+  | Rocqtop_htop _ -> assert false
 
 and top t = group (top_internal t)
 

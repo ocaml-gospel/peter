@@ -4,9 +4,14 @@ open Format
 
 let fname = ref None
 let version = "0.1~dev"
-let backend = ref Print_coq.CFML
+
+(* let backend = ref Print_coq.CFML *)
 let stdlib = ref false
 let dir = ref ""
+
+type backend = CFML | Iris
+
+let backend = ref CFML
 
 let spec =
   [
@@ -17,7 +22,7 @@ let spec =
           exit 0),
       " print version information" );
     ( "--iris",
-      Arg.Unit (fun () -> backend := Print_coq.Iris),
+      Arg.Unit (fun () -> backend := Iris),
       " use Iris as a verification backend" );
     ( "--dir",
       Arg.String (fun s -> dir := s),
