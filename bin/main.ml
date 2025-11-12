@@ -4,8 +4,6 @@ open Format
 
 let fname = ref None
 let version = "0.1~dev"
-
-(* let backend = ref Print_coq.CFML *)
 let stdlib = ref false
 let dir = ref ""
 
@@ -32,6 +30,8 @@ let spec =
       "Flag to use when translating the Gospel standard library." );
   ]
 
+module Iris = Peter.Make (Peter.Sep_to_iris)
+
 let usage_msg = sprintf "%s <file>.ml\nVerify OCaml program\n" Sys.argv.(0)
 
 let usage () =
@@ -52,17 +52,22 @@ let () =
     | [ x ] -> x
     | _ -> assert false
   in
-  let file_cfml = Sep2coq.sep_defs ~sep_logic:!backend file_sep in
-  let out_fname = file_sep.fmodule ^ "_mli.v" in
-  let base_dir =
-    !dir ^ if !backend = CFML then file_sep.fmodule ^ "/" else ""
+
+  let file_cfml =
+    match !backend with
+    | Iris -> Iris.sep_defs ~stdlib:!stdlib file_sep
+    | CFML -> assert false
   in
+
+  dir := if not (String.ends_with ~suffix:"/" !dir) then !dir ^ "/" else !dir;
+  let base_dir = !dir ^ if !backend = CFML then file_sep.fname ^ "/" else "" in
+
   let () =
     if base_dir <> "" && not (Sys.file_exists base_dir) then
       Sys.mkdir base_dir 0o755
     else ()
   in
-  let directory = base_dir ^ out_fname in
-
-  let fmt = formatter_of_out_channel (open_out directory) in
-  fprintf fmt "%s@." (Print_coq.tops (file_cfml ~stdlib:!stdlib))
+  let oc = open_out (base_dir ^ file_sep.fmodule ^ "_mli.v") in
+  let file = Print_rocq.tops file_cfml in
+  Out_channel.output_string oc file;
+  close_out oc

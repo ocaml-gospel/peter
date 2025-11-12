@@ -7,12 +7,15 @@ let backend = ref CFML
 
 (* These functions could move to [PPrint]. *)
 
-let sprintf format = Printf.ksprintf arbitrary_string format
-
 let run (print : Buffer.t -> 'a -> unit) (x : 'a) : string =
   let b = Buffer.create 1024 in
   print b x;
   Buffer.contents b
+
+let nest d = group (nest 2 d)
+
+let separate_map ?(first = break 1) ?(last = break 1) ?(sep = break 1) f l =
+  match l with [] -> empty | _ -> nest (first ^^ separate_map sep f l ^^ last)
 
 (* -------------------------------------------------------------------------- *)
 
@@ -25,11 +28,10 @@ let width = ref 80
 
 (* Various fixed elements. *)
 
-let arrow = string "->"
+let arrow = string " -> "
 let doublearrow = string "=>"
-let colonequals = string ":="
+let colonequals = string " :="
 let spacecolon = string " :"
-let spacecolonequals = string ":="
 let hardline2 = hardline ^^ hardline
 
 (* -------------------------------------------------------------------------- *)
@@ -52,11 +54,6 @@ let apps ds =
 
 (* A block with indentation. *)
 
-let block n opening contents closing =
-  group (opening ^^ nest n contents ^^ closing)
-
-let block = block indentation
-
 (* -------------------------------------------------------------------------- *)
 
 (* Parentheses with indentation. *)
@@ -64,20 +61,21 @@ let block = block indentation
 (* We allow breaking a parenthesized thing into several lines by leaving the
    opening and closing parentheses alone on a line and indenting the content. *)
 
-let parens d = block lparen (break 0 ^^ d) (break 0 ^^ rparen)
+let parens d = lparen ^^ d ^^ rparen
 
 (* Braces with spacing and indentation. *)
 
-let braces d = block lbrace (break 1 ^^ d) (break 1 ^^ rbrace)
+let braces d = lbrace ^^ space ^^ d ^^ space ^^ rbrace
 
 (* Coq-record braces {| ... |} with spacing and indentation. *)
 
-let record_braces d = block (string "{|") (break 1 ^^ d) (break 1 ^^ string "|}")
+let record_braces d = string "{|" ^^ break 1 ^^ d ^^ break 1 ^^ string "|}"
 
 (* Brackets with spacing and indentation. *)
 
-let brackets d = block lbracket (break 1 ^^ d) (break 1 ^^ rbracket)
-let corners d = block (string "⌜") (break 1 ^^ d) (break 1 ^^ string "⌝")
+let brackets d = lbracket ^^ break 1 ^^ d ^^ break 1 ^^ rbracket
+let corners d = string "⌜" ^^ break 1 ^^ d ^^ break 1 ^^ string "⌝"
+let commabr = comma ^^ break 1
 
 (* -------------------------------------------------------------------------- *)
 
@@ -85,11 +83,11 @@ let corners d = block (string "⌜") (break 1 ^^ d) (break 1 ^^ string "⌝")
 
 (* Raw. *)
 
-let field (x, t) = block (x ^^ spacecolonequals) (space ^^ t) empty
+let field (x, t) = x ^^ colonequals ^^ t
 
 (* A list of field value declarations, separated with semicolons. *)
 
-let fields_value fts = separate_map (semi ^^ break 1) field fts
+let fields_value = separate_map ~sep:(semi ^^ break 1) field
 
 (* Record definition : {| f1 := t1; ... |} *)
 
@@ -99,7 +97,7 @@ let record_value fts = record_braces (fields_value fts)
 
 (* Tuples. *)
 
-let tuple expr es = parens (separate_map (comma ^^ break 1) expr es)
+let tuple expr es = parens (separate_map ~sep:(comma ^^ break 1) expr es)
 
 (* -------------------------------------------------------------------------- *)
 
@@ -114,12 +112,6 @@ let tuple expr es = parens (separate_map (comma ^^ break 1) expr es)
            string "Label_create" ^/^ squote ^^ string l
          )
 *)
-
-(* -------------------------------------------------------------------------- *)
-
-(* Bindings, or annotations: [x : t]. *)
-
-let binding x t = block (x ^^ spacecolon) (space ^^ t) empty
 
 (* -------------------------------------------------------------------------- *)
 
@@ -139,32 +131,32 @@ let rec expr0 = function
       | CFML -> parens (string "fun " ^^ string v ^^ string "=>" ^^ expr0 t))
   | Rocq_record fes ->
       record_value (List.map (fun (f, e) -> (string f, expr e)) fes)
-  | Rocq_proj (f, e1) ->
-      (* less well supported:  expr e1 ^^ dot ^^ string f *)
-      parens (app (string f) (expr e1))
+  | Rocq_proj (f, e1) -> parens (app (string f) (expr e1))
+  | Rocq_implicit (v, arg) ->
+      parens (string v ^^ colonequals ^^ space ^^ expr arg)
   | ( Rocq_app _ | Rocq_lettuple _ | Rocq_quant _ | Rocq_fun _ | Rocq_if _
-    | Rocq_match _ | Rocq_infix _ ) as e ->
+    | Rocq_match _ | Rocq_infix _ | Rocq_spec _ ) as e ->
       parens (expr e)
 
-and spec_vars_cfml l =
-  let spec_var v =
-    string (match v with Unit | Wildcard -> "_" | Var v -> v)
-  in
-  parens (separate_map comma spec_var l) ^^ space ^^ equals ^^ space
+(* and spec_vars_cfml l = *)
+(*   let spec_var v = *)
+(*     string (match v with Unit | Wildcard -> "_" | Var v -> v) *)
+(*   in *)
+(*   parens (con comma spec_var l) ^^ space ^^ equals ^^ space *)
 
-and cfml_post rets post =
-  match rets with
-  | [ Unit ] -> string "POSTUNIT" ^^ expr0 post
-  | [ Var x ] ->
-      string "POST"
-      ^^ parens (string "fun" ^^ space ^^ string x ^^ doublearrow ^^ expr0 post)
-  | l ->
-      let ret_name = "_rets_" in
-      string "POST"
-      ^^ parens
-           (string "fun" ^^ space ^^ string ret_name ^^ doublearrow
-           ^^ parens (spec_vars_cfml l)
-           ^^ string ret_name ^^ string "in" ^^ expr0 post)
+(* and cfml_post rets post = *)
+(*   match rets with *)
+(*   | [ Unit ] -> string "POSTUNIT" ^^ expr0 post *)
+(*   | [ Var x ] -> *)
+(*       string "POST" *)
+(*       ^^ parens (string "fun" ^^ space ^^ string x ^^ doublearrow ^^ expr0 post) *)
+(*   | l -> *)
+(*       let ret_name = "_rets_" in *)
+(*       string "POST" *)
+(*       ^^ parens *)
+(*            (string "fun" ^^ space ^^ string ret_name ^^ doublearrow *)
+(*            ^^ parens (spec_vars_cfml l) *)
+(*            ^^ string ret_name ^^ string "in" ^^ expr0 post) *)
 
 (* and sep_expr_cfml = function *)
 (*   | Rocq_pure e -> backslash ^^ brackets (expr e) *)
@@ -188,7 +180,7 @@ and iris_rets rets =
   in
   let ret = match vars with [ x ] -> string x | _ -> tuple string vars in
   let vars = List.filter (( <> ) "#()") vars in
-  separate_map space string vars
+  separate_map ~sep:space string vars
   ^^ comma_if_cons ^^ string "RET " ^^ ret ^^ semi ^^ space
 
 (* and sep_expr_iris = function *)
@@ -204,36 +196,23 @@ and iris_rets rets =
 
 and expr1 = function
   | Rocq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
+  | Rocq_infix (e1, "->", Rocq_infix (e2, "->", e3)) ->
+      expr0 e1 ^^ arrow ^^ expr0 e2 ^^ arrow ^^ expr0 e3
   | Rocq_infix (e1, v, e2) -> expr0 e1 ^^ space ^^ string v ^^ space ^^ expr0 e2
   | e -> expr0 e
 
 and expr2 = function
   | Rocq_lettuple (es, e1, e2) ->
-      block
-        (string "let '" ^^ tuple expr es ^^ space ^^ colonequals)
-        (break 1 ^^ expr e1)
-        (break 1 ^^ string "in")
-      ^/^ expr2 e2
+      (string "let '" ^^ tuple expr es ^^ space ^^ colonequals)
+      ^^ break 1 ^^ expr e1 ^^ break 1 ^^ string "in" ^/^ expr e2
   | Rocq_quant (q, vars, e2) ->
       let quant = match q with Forall -> "forall" | Exists -> "exists" in
-      let args tv =
-        block
-          (string quant ^^ space ^^ string tv.var_name ^^ spacecolon)
-          (break 1 ^^ expr tv.var_type)
-          (break 1)
-      in
-      concat_map args vars ^^ comma ^^ expr2 e2
+      group (string quant ^^ tvars ~last:commabr vars) ^^ space ^^ expr e2
   | Rocq_fun (var, e2) ->
-      block
-        (string "fun" ^^ space ^^ lbracket ^^ string var.var_name ^^ spacecolon)
-        (break 1 ^^ expr var.var_type)
-        (break 1 ^^ doublearrow)
-      ^/^ expr2 e2
+      string "fun" ^^ space ^^ tvar var ^^ break 1 ^^ doublearrow ^/^ expr e2
   | Rocq_if (e0, e1, e2) ->
-      block
-        (string "if" ^^ space ^^ expr e0 ^^ space ^^ string "then")
-        (break 1 ^^ expr e1 ^^ break 1)
-        (string "else" ^^ break 1 ^^ expr e2)
+      string "if" ^^ space ^^ expr e0 ^^ space ^^ string "then" ^^ break 1
+      ^^ expr e1 ^^ break 1 ^^ string "else" ^^ break 1 ^^ expr e2
   | Rocq_match (carg, branches) ->
       let mk_branch (c1, c2) =
         group
@@ -241,34 +220,32 @@ and expr2 = function
          ^^ expr c2)
         ^^ hardline
       in
-      block
-        (string "match" ^^ space ^^ expr carg ^^ space ^^ string "with"
-       ^^ hardline)
-        (concat_map mk_branch branches)
-        (string "end")
+
+      string "match" ^^ space ^^ expr carg ^^ space ^^ string "with" ^^ hardline
+      ^^ concat_map mk_branch branches
+      ^^ string "end"
   | e -> expr1 e
 
-and expr e = expr2 e
-
-(* -------------------------------------------------------------------------- *)
+and expr e = group (expr2 e)
 
 (* Typed variables: [x : t]. *)
 
 (* Raw. *)
 
-and var { var_name = x; var_type = t; _ } = binding (string x) (expr t)
+and binding x t = parens (x ^^ spacecolon ^^ t)
 
-(* With parentheses and with a leading space. *)
+and tvar v =
+  match v.var_name with
+  | Some x -> binding (string x) (expr v.var_type)
+  | None -> string "`" ^^ braces (expr v.var_type)
 
-and pvar xt =
-  let v = var xt in
-  space ^^ parens v
+and tvars ?(last = space) l = separate_map ~last tvar l
 
-and pvars xts = group (concat_map pvar xts)
+(* -------------------------------------------------------------------------- *)
 
 (* A list of field type declarations, separated with semicolons. *)
 
-let fields_type xts = separate_map (semi ^^ break 1) var xts
+let fields_type xts = separate_map ~sep:(semi ^^ break 1) tvar xts
 
 (* -------------------------------------------------------------------------- *)
 
@@ -277,14 +254,12 @@ let fields_type xts = separate_map (semi ^^ break 1) var xts
 (* A definition, without a leading keyword, but with a leading space.
    [ x : d1 :=]. *)
 
-let definition x d1 =
-  block (space ^^ x ^^ spacecolon) (break 1 ^^ d1) (break 1 ^^ colonequals)
+let definition x d1 = space ^^ x ^^ spacecolon ^^ d1 ^^ break 1 ^^ colonequals
 
 (* A parameter, without a leading keyword, but with a leading space.
    [ x : d1.]. *)
 
-let parameter nm ret =
-  block (space ^^ string nm ^^ spacecolon) (break 1 ^^ expr1 ret) empty
+let parameter nm ret = space ^^ string nm ^^ spacecolon ^^ expr1 ret
 
 (* The right-hand side of a record declaration. [ Foo {| ... |}]. *)
 
@@ -298,14 +273,14 @@ let record_rhs r =
 
 let sum_rhs r =
   concat_map
-    (fun xt -> hardline ^^ block (string "| ") (var xt) empty)
+    (fun xt -> hardline ^^ string "| " ^^ tvar xt ^^ empty)
     r.rocqind_branches
 
 (* The left-hand side of a record or sum declaration. [ foo params : T := rhs]. *)
 
 let inductive_lhs rhs r =
   definition
-    (string r.rocqind_name ^^ pvars r.rocqind_targs)
+    (string r.rocqind_name ^^ tvars r.rocqind_targs)
     (expr r.rocqind_ret)
   ^^ rhs r
 
@@ -322,62 +297,75 @@ let inductive_lhs rhs r =
          sprintf "(* %s *)" x
 *)
 
-let tvars _ = assert false
+let type_var v = lbrace ^^ string v ^^ rbrace
+let type_vars = separate_map type_var
+
+(* Bindings, or annotations: [x : t]. *)
+
+let bindings ~first = separate_map ~first tvar
 
 (* -------------------------------------------------------------------------- *)
 
-(* Toplevel elements. *)
+(* Top level elements. *)
 
-let rec top_internal = function
-  | Rocqtop_def instance ->
-      let first_keyword =
-        if instance.def_rec then "Fixpoint" else "Definition"
-      in
+let forall_tvars tvars =
+  separate_map
+    (fun x -> braces (string x))
+    ~first:(string "forall ") ~last:commabr tvars
 
-      let keyword = first_keyword in
-      string keyword ^^ space ^^ string instance.def_nm ^^ space
-      ^^ tvars instance.def_tvars ^^ spacecolon ^^ space
-      ^^ expr instance.def_return ^^ colonequals ^^ break 1
-      ^^ expr instance.def_body
+let inst x = string "`" ^^ braces (string "@" ^^ string x)
+let insts = separate_map ~first:empty inst
+
+let rocq_class c =
+  string "Class " ^^ string c.cname ^^ insts c.cdeps ^^ string ":=" ^^ space
+  ^^ lbrace
+  ^^ group
+       (nest
+          (break 1 ^^ string c.cproj ^^ spacecolon ^^ space
+         ^^ forall_tvars c.ctvars ^^ expr c.crocq)
+       ^^ break 1 ^^ rbrace)
+
+let rec top = function
+  | Rocqtop_def def ->
+      let keyword = if def.def_rec then "Fixpoint" else "Definition" in
+      string keyword ^^ space ^^ string def.def_nm ^^ space
+      ^^ type_vars def.def_tvars ^^ insts def.def_insts
+      ^^ bindings ~first:empty def.def_args
+      ^^ colon ^^ space ^^ expr def.def_return ^^ colonequals ^^ break 1
+      ^^ nest (expr def.def_body)
   | Rocqtop_param param ->
       string "Parameter" ^^ parameter param.param_nm param.param_ret
-  | Rocqtop_axiom param ->
-      string "Axiom" ^^ parameter param.param_nm param.param_ret
   | Rocqtop_instance instance ->
-      string "Global Declare Instance"
+      string "Global Declare Instance "
       ^^ string instance.inst_nm ^^ spacecolon ^^ string instance.inst_class
-  | Rocqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r ^^ dot
-  | Rocqtop_import xs -> string "Import " ^^ flow_map space string xs ^^ dot
+  | Rocqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r
+  | Rocqtop_import xs -> string "Import " ^^ flow_map space string xs
   | Rocqtop_require_import xs ->
-      string "Require Import " ^^ flow_map space string xs ^^ dot
+      string "Require Import " ^^ flow_map space string xs
   | Rocqtop_module (x, defs) ->
-      string "Module" ^^ space ^^ string x ^^ dot ^^ hardline ^^ tops defs
-      ^^ string "End" ^^ string x
-  | Rocqtop_module_type (x, bs, d) ->
-      string "Module Type" ^^ space ^^ string x ^^ spacecolon ^^ space
-      ^^ string bs ^^ dot ^^ hardline ^^ tops d ^^ string "End" ^^ string x
-  | Rocqtop_module_type_include x -> sprintf "Include Type %s." x
-  | Rocqtop_custom x -> sprintf "%s" x
-  | Rocqtop_section x -> sprintf "Section %s." x
-  | Rocqtop_context xs -> sprintf "Context" ^^ space ^^ pvars xs ^^ dot
-  | Rocqtop_class _ -> assert false
-  | Rocqtop_htop _ -> assert false
+      string "Module" ^^ space ^^ string x ^^ dot ^^ hardline
+      ^^ nest (tops defs)
+      ^^ hardline ^^ string "End " ^^ string x
+  | Rocqtop_module_type (x, d) ->
+      string "Module Type" ^^ space ^^ string x ^^ dot ^^ hardline
+      ^^ nest (tops d)
+      ^^ hardline ^^ string "End " ^^ string x
+  | Rocqtop_module_type_include x -> string "Include Type %s." ^^ string x
+  | Rocqtop_custom x -> string x
+  | Rocqtop_section x -> string "Section " ^^ string x
+  | Rocqtop_context xs -> string "Context" ^^ space ^^ tvars xs
+  | Rocqtop_class c -> rocq_class c
+  | Rocqtop_notation (nm, e) ->
+      string "Notation " ^^ string nm ^^ colonequals ^^ break 1
+      ^^ parens (expr e)
+      ^^ string " (only parsing)"
 
-and top t = group (top_internal t)
-
-and tops ts =
-  let first = ref true in
-  concat_map
-    (fun t ->
-      (if !first then (
-         first := true;
-         empty)
-       else hardline2)
-      ^^ top t ^^ dot)
-    ts
+and tops ?(first = hardline) ?(last = hardline) ts : document =
+  separate_map (fun t -> top t ^^ dot) ~sep:hardline2 ~first ~last ts
 
 (* -------------------------------------------------------------------------- *)
 
 (* The main entry point translates a list of toplevel elements to a string. *)
 
-let tops ts : string = run (PPrint.ToBuffer.pretty 0.9 !width) (tops ts)
+let tops ts : string =
+  run (PPrint.ToBuffer.pretty 0.9 !width) (tops ~first:empty ~last:empty ts)

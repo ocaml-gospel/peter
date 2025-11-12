@@ -15,7 +15,7 @@ type vars = var list
 type spec_var = Var of var | Wildcard | Unit
 type rocq_path = Rocqp_var of var | Rocqp_dot of rocq_path * string
 
-type typed_var = { var_name : var; var_type : rocq }
+type typed_var = { var_name : var option; var_type : rocq }
 and typed_vars = typed_var list
 
 (** Rocq expressions *)
@@ -24,6 +24,7 @@ and rocq =
   | OCaml_type
   | Gospel_type
   | Rocq_var of var
+  | Rocq_implicit of var * rocq
   | Rocq_int of int
   | Rocq_string of string
   | Rocq_app of rocq * rocq
@@ -37,10 +38,21 @@ and rocq =
   | Rocq_proj of var * rocq
   | Rocq_if of rocq * rocq * rocq
   | Rocq_match of rocq * (rocq * rocq) list
+  | Rocq_spec of spec
 
 and rocqs = rocq list
 
-type rocq_sep =
+and spec = {
+  spec_nm : var;
+  spec_tvars : var list;
+  spec_forall : typed_vars;
+  spec_pre : rocq_seps;
+  spec_args : spec_var list;
+  spec_ret : spec_var list;
+  spec_post : rocq_seps;
+}
+
+and rocq_sep =
   | Rocq_pure of rocq
   | Rocq_hempty
   | Rocq_lift of var * rocq * rocq
@@ -48,7 +60,21 @@ type rocq_sep =
 
 and rocq_seps = rocq_sep list
 
-let tv var_name var_type = { var_name; var_type }
+let rocq_spec spec_nm spec_tvars spec_forall spec_pre spec_args spec_ret
+    spec_post =
+  Rocq_spec
+    {
+      spec_nm;
+      spec_tvars;
+      spec_forall;
+      spec_pre;
+      spec_args;
+      spec_ret;
+      spec_post;
+    }
+
+let tv var_name var_type = { var_name = Some var_name; var_type }
+let inst var_type = { var_name = None; var_type = Rocq_var var_type }
 
 (** Toplevel declarations *)
 
@@ -58,45 +84,38 @@ type definition = {
   def_rec : bool;
   def_nm : var;
   def_tvars : var list;
-  def_insts : rocq list;
+  def_insts : var list;
   def_args : typed_var list;
   def_return : rocq;
   def_body : rocq;
 }
 
 type param = { param_nm : var; param_ret : rocq }
-
-type spec = {
-  spec_nm : var;
-  spec_forall : typed_vars;
-  spec_pre : rocq_seps;
-  spec_args : spec_var list;
-  spec_ret : spec_var list;
-  spec_post : rocq_seps;
-}
-
-let rocq_spec spec_nm spec_forall spec_pre spec_args spec_ret spec_post =
-  { spec_nm; spec_forall; spec_pre; spec_args; spec_ret; spec_post }
-
 type kind = Obligation | Statement
-type tclass = { cname : var; cproj : var; crocq : rocq }
+
+type tclass = {
+  cname : var;
+  cdeps : var list;
+  ctvars : var list;
+  cproj : var;
+  crocq : rocq;
+}
 
 type rocqtop =
   | Rocqtop_def of definition
   | Rocqtop_param of param
-  | Rocqtop_axiom of param
   | Rocqtop_instance of instance
   | Rocqtop_record of rocqind
   | Rocqtop_import of vars
   | Rocqtop_class of tclass
   | Rocqtop_require_import of vars
   | Rocqtop_module of var * rocqtop list
-  | Rocqtop_module_type of var * var * rocqtop list
+  | Rocqtop_module_type of var * rocqtop list
   | Rocqtop_module_type_include of var
   | Rocqtop_custom of string
   | Rocqtop_section of var
   | Rocqtop_context of typed_vars
-  | Rocqtop_htop of kind * htop
+  | Rocqtop_notation of var * rocq
 
 and rocqind = {
   rocqind_name : var;
@@ -108,13 +127,13 @@ and rocqind = {
 
 and rocqtops = rocqtop list
 
-and htop =
-  | Rocqtop_spec of spec
-  | Rocqtop_hpred of spec
-  | Rocqtop_encoder of var * rocq
+let tclass cname cdeps ctvars cproj crocq =
+  Rocqtop_class { cname; cdeps; ctvars; cproj; crocq }
 
-let tclass cname cproj crocq = Rocqtop_class { cname; cproj; crocq }
 let tinst inst_nm inst_class = Rocqtop_instance { inst_nm; inst_class }
+let rocq_module nm tops = Rocqtop_module (nm, tops)
+let mod_type nm tops = Rocqtop_module_type (nm, tops)
+let import nm = Rocqtop_import nm
 
 (** Inductive definitions *)
 
@@ -128,6 +147,7 @@ let rocqtop_def def_rec def_nm def_tvars def_insts def_args def_return def_body
 
 let rocqtop_param param_nm param_ret = Rocqtop_param { param_nm; param_ret }
 let instance inst_nm inst_class = Rocqtop_instance { inst_nm; inst_class }
+let notation nm rocq = Rocqtop_notation (nm, rocq)
 
 (*#########################################################################*)
 (* ** Smart constructors for variables *)
@@ -141,17 +161,6 @@ let rocq_var x = Rocq_var x
 
 let rocq_vars xs = List.map rocq_var xs
 
-(** Identifier [@x] *)
-
-let rocq_var_at x = rocq_var ("@" ^ x)
-
-(** Identifier [@c], where [c] is a [Rocq_var] *)
-
-let rocq_at c =
-  match c with
-  | Rocq_var x -> Rocq_var ("@" ^ x)
-  | _ -> failwith "rocq_at applied to a non-variable"
-
 (*#########################################################################*)
 (* ** Smart constructors for applications *)
 
@@ -161,7 +170,9 @@ let rocq_app c1 c2 = Rocq_app (c1, c2)
 
 (** Application [c c1 c2 ... cn] *)
 
+let to_tvar v = String.capitalize_ascii v.Gospel_checker.Ident.id_str
 let rocq_apps c args = List.fold_left rocq_app c args
+let rocq_implicit v rocq = Rocq_implicit (to_tvar v, rocq)
 
 (** Application [c0 c1 c2] *)
 
@@ -176,40 +187,28 @@ let rocq_app_var x c = rocq_app (rocq_var x) c
 
 let rocq_apps_var x args = rocq_apps (rocq_var x) args
 
-(** Application [@x c1 c2 .. cn] *)
-
-let rocq_apps_var_at x args = rocq_apps (rocq_var_at x) args
-
 (** Application [x x1 x2 .. xn] *)
 
 let rocq_apps_vars x xs = rocq_apps (rocq_var x) (rocq_vars xs)
-
-(** Applications of an at-identifier to arguments [@x c1 .. cn] *)
-
-let rocq_app_var_at x args =
-  if args = [] then Rocq_var x else rocq_apps (rocq_var_at x) args
 
 (*#########################################################################*)
 (* ** Smart constructors for base types *)
 
 let typ_prop = Rocq_var "Prop"
-let ocaml_type = OCaml_type
-let gospel_type = Gospel_type
-let typ ~ocaml = if ocaml then ocaml_type else gospel_type
+let typ = Rocq_var "Type"
 let typ_unit = Rocq_var "unit"
 let typ_bool = Rocq_var "bool"
 let typ_int = Rocq_var "Z"
 let typ_nat = Rocq_var "nat"
+let rocq_val = Rocq_var "val"
 let rocq_set v p = Rocq_set (v, p)
 (*#########################################################################*)
 (* ** Helper functions *)
 
 (** List of types [(A1:Type)::(A2::Type)::...::(AN:Type)::nil] *)
 
-let to_tvar v = String.capitalize_ascii v.Gospel_checker.Ident.id_str
-
-let rocq_types ~ocaml names =
-  List.map (fun v -> tv (to_tvar v) (typ ~ocaml)) names
+let tvars names = List.map (fun v -> to_tvar v) names
+let tv_tvars names = List.map (fun v -> tv (to_tvar v) typ) names
 
 (*#########################################################################*)
 (* ** Smart constructors for structure *)
@@ -229,10 +228,6 @@ let rocq_funs args c = List.fold_right rocq_fun args c
 let rocq_match carg branches = Rocq_match (carg, branches)
 
 (** Function [fun (x1:Type) .. (xn:Type) => c] *)
-
-let rocq_fun_types ocaml names c = rocq_funs (rocq_types ~ocaml names) c
-
-(** Conditionals *)
 
 let rocq_if_bool c0 c1 c2 = Rocq_if (c0, c1, c2)
 let rocq_if_prop c0 c1 c2 = Rocq_if (Rocq_app (Rocq_var "classicT", c0), c1, c2)
@@ -259,8 +254,10 @@ let rocq_foralls args c =
 let rocq_hexists l s =
   match l with [] -> s | _ -> [ Rocq_hquant (Exists, l, s) ]
 
-let rocq_forall_types ~ocaml names =
-  rocq_foralls (rocq_types ~ocaml names) (typ ~ocaml)
+let rocq_insts l rocq =
+  match l with [] -> rocq | _ -> Rocq_quant (Forall, List.map inst l, rocq)
+
+let rocq_forall_types names = rocq_foralls (tv_tvars names) typ
 
 (** Implication [c1 -> c2] *)
 
@@ -298,8 +295,7 @@ let rocq_typ_tuple = rocq_prods
 
 (** Implication [Type -> Type -> .. -> Type] *)
 
-let rocq_impl_types ~ocaml n =
-  rocq_impls (list_make n (typ ~ocaml)) (typ ~ocaml)
+let rocq_impl_types n = rocq_impls (list_make n typ) typ
 
 (*#########################################################################*)
 (* ** Smart constructors for constants *)
@@ -312,36 +308,6 @@ let rocq_bool_false = Rocq_var "false"
 let rocq_bool_true = Rocq_var "true"
 let rocq_int n = Rocq_int n
 let rocq_string s = Rocq_string s
-
-(** List [c1 :: c2 :: .. :: cN :: nil], with constructors optionally annotated
-    with a type *)
-
-let rocq_nil ?(typ : rocq option) () =
-  let f = "Rocq.Lists.List.nil" in
-  (* TODO: factorize this code pattern with "rocq_none", etc. *)
-  match typ with
-  | None -> rocq_apps_var f []
-  | Some t -> rocq_apps_var_at f [ t ]
-
-let rocq_cons ?(typ : rocq option) c1 c2 =
-  let f = "Rocq.Lists.List.cons" in
-  (* TODO: factorize this code pattern with "rocq_none", etc. *)
-  match typ with
-  | None -> rocq_apps_var f [ c1; c2 ]
-  | Some t -> rocq_apps_var_at f [ t; c1; c2 ]
-
-let rocq_list ?(typ : rocq option) cs =
-  let cnil = rocq_nil ?typ () in
-  let ccons = rocq_cons ?typ in
-  List.fold_right ccons cs cnil
-
-(** Pair [(c1,c2)], with optional type arguments *)
-
-let rocq_pair ?(typ : (rocq * rocq) option) c1 c2 =
-  let f = "Rocq.Init.Datatypes.pair" in
-  match typ with
-  | None -> rocq_apps_var f [ c1; c2 ]
-  | Some (t1, t2) -> rocq_apps_var_at f [ t1; t2; c1; c2 ]
 
 (** Tuple [(c1,c2,..,cn)], with optional type arguments; tt if the list empty;
     c1 if the list is singleton *)
