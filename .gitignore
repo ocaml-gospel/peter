@@ -27,3 +27,12 @@ setup.log
 
 # Local OPAM switch
 _opam/
+
+*.vo
+*.vok
+*.glob
+*.vos
+*.aux
+*lia.cache
+*Makefile*
+*_CoqProject

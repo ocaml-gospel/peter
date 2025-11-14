@@ -571,14 +571,19 @@ module Make (M : Sep_to_rocq) : P = struct
       @ [ Rocqtop_custom "Local Open Scope Z_scope" ]
     in
     let defs = sep_defs [] file.Gospel.fdefs in
-    let set_decl =
-      tclass "_set_sig" [] [] "set" (rocq_forall_types [ Ident.mk_id "A" ])
+    let extra_decl, extra_obl =
+      if stdlib then
+        let set_decl =
+          tclass "_set_sig" [] [] "set" (rocq_forall_types [ Ident.mk_id "A" ])
+        in
+        let set_obl = tinst "_set_inst" "_set_sig" in
+        ([ set_decl ], [ set_obl ])
+      else ([], [])
     in
-    let set_obl = tinst "set" "_set_sig" in
-    let decls = rocq_module decl_mod (set_decl :: defs.declarations) in
+    let decls = rocq_module decl_mod (extra_decl @ defs.declarations) in
     let obls =
       mod_type obl_mod
-        (Rocqtop_import [ decl_mod ] :: set_obl :: defs.obligations)
+        ((Rocqtop_import [ decl_mod ] :: extra_obl) @ defs.obligations)
     in
     let tops = [ decls; obls ] in
     imports @ tops

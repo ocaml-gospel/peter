@@ -45,6 +45,35 @@ let set_file f =
 
 let () = Arg.parse spec set_file usage_msg
 let fname = match !fname with None -> usage () | Some f -> f
+let module_suffix = "_mli"
+let interface_suffix = module_suffix ^ ".v"
+let proof_suffix = "_proof.v"
+let project_file = "_CoqProject"
+
+let mk_base base_dir mod_name =
+  let oc = open_out (base_dir ^ mod_name ^ proof_suffix) in
+  let rocq_mli_module = mod_name ^ module_suffix in
+  output_string oc
+    (Printf.sprintf
+       "Require Import %s.\n\n\
+        Module Proofs : %s.Obligations.\n\n\
+       \  Import Declarations.\n\n\
+        End Proofs.\n"
+       rocq_mli_module rocq_mli_module);
+  close_out oc;
+  let project_file = base_dir ^ project_file in
+  let oc = open_out project_file in
+  let rocq_module = Printf.sprintf "-R . %s\n" mod_name in
+  let interface = mod_name ^ interface_suffix in
+  output_string oc rocq_module;
+  output_string oc interface;
+  close_out oc;
+  let _ =
+    Sys.command
+      (Printf.sprintf "cd %s && rocq makefile -f %s -o Makefile" base_dir
+         project_file)
+  in
+  ()
 
 let () =
   let file_sep =
@@ -60,14 +89,13 @@ let () =
   in
 
   dir := if not (String.ends_with ~suffix:"/" !dir) then !dir ^ "/" else !dir;
-  let base_dir = !dir ^ if !backend = CFML then file_sep.fname ^ "/" else "" in
-
-  let () =
-    if base_dir <> "" && not (Sys.file_exists base_dir) then
-      Sys.mkdir base_dir 0o755
-    else ()
-  in
-  let oc = open_out (base_dir ^ file_sep.fmodule ^ "_mli.v") in
+  let base_dir = !dir ^ file_sep.fmodule ^ "/" in
+  let mk_project = not (Sys.file_exists base_dir) in
+  if mk_project then Sys.mkdir base_dir 0o755;
+  let oc = open_out (base_dir ^ file_sep.fmodule ^ interface_suffix) in
   let file = Print_rocq.tops file_cfml in
   Out_channel.output_string oc file;
-  close_out oc
+  close_out oc;
+  if mk_project then mk_base base_dir file_sep.fmodule;
+  let _ = Sys.command (Printf.sprintf "cd %s && make" base_dir) in
+  ()
