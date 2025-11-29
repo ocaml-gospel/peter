@@ -28,52 +28,6 @@ let inst_name v = "_" ^ v ^ "_inst"
 let stmt_name v = "_" ^ v ^ "_stmt"
 let to_ocaml v = "_" ^ v ^ "_prog"
 
-(** Imports for common Rocq standard libraries. *)
-
-let import_tlc =
-  [
-    Rocqtop_custom "Set Warnings \"-deprecated\".";
-    Rocqtop_custom "Set Warnings \"-default\".";
-    Rocqtop_custom "Set Warnings \"-syntax\".";
-    Rocqtop_require_import [ "TLC.LibCore" ];
-  ]
-
-let import_stdpp =
-  [ Rocqtop_require_import [ "Stdlib.ZArith.BinInt"; "stdpp.base" ] ]
-
-let import_stdpp_impl =
-  [ Rocqtop_require_import [ "Stdlib_tlc.gospelstdlib_verified_tlc" ] ]
-
-let import_tlc_impl =
-  [ Rocqtop_require_import [ "Stdlib_stdpp.gospelstdlib_verified_stdpp" ] ]
-
-let import_cfml =
-  [
-    Rocqtop_require_import
-      [
-        "CFML.SepBase";
-        "CFML.SepLifted";
-        "CFML.WPLib";
-        "CFML.WPLifted";
-        "CFML.WPRecord";
-        "CFML.WPArray";
-        "CFML.WPBuiltin";
-        "CFML.Semantics";
-        "CFML.WPHeader";
-      ];
-  ]
-
-let import_iris =
-  [
-    Rocqtop_require_import
-      [
-        "iris.proofmode.proofmode";
-        "iris.heap_lang.proofmode";
-        "iris.heap_lang.notation";
-        "iris.prelude.options";
-      ];
-  ]
-
 (** Names for the generated modules. *)
 
 let decl_mod = "Declarations"
@@ -331,7 +285,28 @@ module Sep_to_iris : Sep_to_rocq = struct
       obligations = [];
     }
 
-  let import_sl = import_iris
+  let import_stdpp =
+    [ Rocqtop_require_import [ "Stdlib.ZArith.BinInt"; "stdpp.base" ] ]
+
+  let import_stdpp_impl =
+    [
+      Rocqtop_require_import
+        [
+          "Stdlib_stdpp.gospelstdlib_verified_stdpp";
+          "Stdlib_stdpp.gospelstdlib_mli_stdpp";
+        ];
+    ]
+
+  let import_sl =
+    [
+      Rocqtop_require_import
+        [
+          "iris.proofmode.proofmode";
+          "iris.heap_lang.proofmode";
+          "iris.heap_lang.notation";
+          "iris.prelude.options";
+        ];
+    ]
 
   let pred_typ path deps lens =
     let i_prop = rocq_var "iProp" in
@@ -341,7 +316,52 @@ module Sep_to_iris : Sep_to_rocq = struct
     rocq_insts l ty
 
   let import_stdlib ~gospelstdlib =
-    if gospelstdlib then import_stdpp else import_stdpp_impl
+    (if gospelstdlib then import_stdpp else import_stdpp_impl)
+    @ [ Rocqtop_custom "Local Open Scope Z_scope" ]
+end
+
+module Sep_to_CFML : Sep_to_rocq = struct
+  let inhab v = "Inhab " ^ v
+  let ocaml_tdef _ = assert false
+
+  let import_tlc =
+    [
+      Rocqtop_custom "Set Warnings \"-deprecated\"";
+      Rocqtop_custom "Set Warnings \"-default\"";
+      Rocqtop_custom "Set Warnings \"-syntax\"";
+      Rocqtop_require_import [ "TLC.LibCore" ];
+    ]
+
+  let import_tlc_impl =
+    [
+      Rocqtop_require_import
+        [
+          "Stdlib_tlc.gospelstdlib_verified_tlc";
+          "Stdlib_tlc.gospelstdlib_mli_tlc";
+        ];
+    ]
+
+  let import_sl =
+    [
+      Rocqtop_require_import
+        [
+          "CFML.SepBase";
+          "CFML.SepLifted";
+          "CFML.WPLib";
+          "CFML.WPLifted";
+          "CFML.WPRecord";
+          "CFML.WPArray";
+          "CFML.WPBuiltin";
+          "CFML.Semantics";
+          "CFML.WPHeader";
+        ];
+    ]
+
+  let pred_typ _ _ _ = assert false
+
+  let import_stdlib ~gospelstdlib =
+    (if gospelstdlib then import_tlc else import_tlc_impl)
+    @ [ Rocqtop_custom "Local Open Scope comp_scope" ]
 end
 
 module type P = sig
@@ -352,7 +372,7 @@ module Make (M : Sep_to_rocq) : P = struct
   open M
 
   let empty_decls = { declarations = []; obligations = [] }
-  let to_triple s = s ^ "_spec"
+  let to_triple s = { s with id_str = s.id_str ^ "_spec" }
 
   let spec_arg = function
     | Sast.Unit -> Some Unit
@@ -397,13 +417,12 @@ module Make (M : Sep_to_rocq) : P = struct
 
   let inhabs l = List.map inhab l
 
-  let gen_spec path triple =
+  let gen_spec deps path triple =
     let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
     let tbl = gen_tbl all_ts in
     let poly = tvars triple.triple_poly in
     let args = spec_args triple.triple_args in
     let inhabs = inhabs poly in
-    let deps = ref [] in
     let all_vars = List.map (rocq_tv deps) all_ts in
     let pre = sep_terms path deps tbl triple.triple_pre in
     let ex, posts = triple.triple_post in
@@ -414,7 +433,7 @@ module Make (M : Sep_to_rocq) : P = struct
     let f = "_" ^ triple.triple_name.id_str in
     let deps = mk_insts_path path !deps in
     let all_vars = List.map inst (deps @ inhabs) @ all_vars in
-    rocq_spec f poly all_vars pre args ret_vars post
+    rocq_foralls all_vars (rocq_spec f poly pre args ret_vars post)
 
   let abstract id nm path deps tvars rocq =
     let class_name = class_name nm in
@@ -430,12 +449,6 @@ module Make (M : Sep_to_rocq) : P = struct
 
   let abstract_id nm path deps tvars rocq =
     abstract nm.id_tag nm.id_str path deps tvars rocq
-
-  let stmt nm rocq =
-    let stmt_name = stmt_name nm in
-    let notation = notation stmt_name rocq in
-    let param = rocqtop_param nm (Rocq_var stmt_name) in
-    { declarations = [ notation ]; obligations = [ param ] }
 
   let tdef path tdef =
     if tdef.type_ocaml then ocaml_tdef tdef
@@ -486,9 +499,10 @@ module Make (M : Sep_to_rocq) : P = struct
         let nm = pred.lid in
         abstract_id nm path !deps pred.lvars typ
     | Triple triple ->
-        let fun_triple = gen_spec path triple in
-        let triple_name = to_triple triple.triple_name.id_str in
-        stmt triple_name fun_triple
+        let deps = ref [] in
+        let fun_triple = gen_spec deps path triple in
+        let triple_name = to_triple triple.triple_name in
+        abstract_id triple_name path !deps triple.triple_poly fun_triple
     | Val v ->
         let deps = ref [] in
         let typ = rocq_ty deps v.vtype in
@@ -552,7 +566,10 @@ module Make (M : Sep_to_rocq) : P = struct
         let l = sep_defs path t in
         combine s l
 
-  let import_gospelstdlib stdlib = import_stdlib ~gospelstdlib:stdlib
+  let import_gospelstdlib stdlib =
+    import_stdlib ~gospelstdlib:stdlib
+    @ if stdlib then [] else [ Rocqtop_import [ "Proofs"; "Declarations" ] ]
+
   let import_sep_semantics stdlib = if stdlib then [] else import_sl
 
   let sep_defs ~stdlib file =
@@ -568,7 +585,6 @@ module Make (M : Sep_to_rocq) : P = struct
             ];
         ]
       @ import_sep_semantics stdlib
-      @ [ Rocqtop_custom "Local Open Scope Z_scope" ]
     in
     let defs = sep_defs [] file.Gospel.fdefs in
     let extra_decl, extra_obl =

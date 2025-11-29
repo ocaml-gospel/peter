@@ -4,7 +4,7 @@ Require Stdlib.ZArith.BinInt stdpp.base.
 
 Require Stdlib.ZArith.BinInt.
 Require Import Stdlib.ZArith.BinIntDef.
-Require Import stdpp.decidable stdpp.list stdpp.gmap stdpp.propset stdpp.option.
+Require Import stdpp.decidable stdpp.list stdpp.gmap stdpp.propset stdpp.option stdpp.base.
 
 Global Declare Instance _DECIDABLE : forall P, stdpp.base.Decision P.
 
@@ -58,7 +58,7 @@ Module Proofs : Gospelstdlib_mli.Obligations.
     { app := fun A _ s1 s2 => s1 ++ s2 }.
 
   Global Instance _seq_get_inst : _seq_get_sig :=
-    { seq_get := fun A _ s i => s !!! Z.to_nat i }.
+    { seq_get := fun A _ (s : list A) i => s !!! Z.to_nat i }.
 
   Definition takeZ {A} (i : Z) (s : sequence A) :=
     take (Z.to_nat i) s.
@@ -80,12 +80,13 @@ Module Proofs : Gospelstdlib_mli.Obligations.
   Global Instance _monoid_inst : _monoid_sig :=
     { monoid :=
         fun A _ f neutral =>
-          Assoc eq f /\ neutral_l f neutral /\ neutral_r f neutral }.
+          Assoc eq f /\ neutral_l f neutral /\ neutral_r f neutral
+    }.
 
   #[refine] Global Instance _monoid_def_inst : _monoid_def_sig := { }.
   Proof.
-    intros A Ih f neutral.
     simpl.
+    intros A Ih f neutral.
     unfold neutral_l, neutral_r.
     split.
     - intros (H1 & H2 & H3). repeat split; try rewrite H2; auto.

@@ -31,6 +31,7 @@ let spec =
   ]
 
 module Iris = Peter.Make (Peter.Sep_to_iris)
+module CFML = Peter.Make (Peter.Sep_to_CFML)
 
 let usage_msg = sprintf "%s <file>.ml\nVerify OCaml program\n" Sys.argv.(0)
 
@@ -70,8 +71,8 @@ let mk_base base_dir mod_name =
   close_out oc;
   let _ =
     Sys.command
-      (Printf.sprintf "cd %s && rocq makefile -f %s -o Makefile" base_dir
-         project_file)
+      (Printf.sprintf "cd %s && rocq makefile -f %s -o Makefile 1> /dev/null"
+         base_dir project_file)
   in
   ()
 
@@ -85,7 +86,7 @@ let () =
   let file_cfml =
     match !backend with
     | Iris -> Iris.sep_defs ~stdlib:!stdlib file_sep
-    | CFML -> assert false
+    | CFML -> CFML.sep_defs ~stdlib:!stdlib file_sep
   in
 
   dir := if not (String.ends_with ~suffix:"/" !dir) then !dir ^ "/" else !dir;
@@ -93,9 +94,14 @@ let () =
   let mk_project = not (Sys.file_exists base_dir) in
   if mk_project then Sys.mkdir base_dir 0o755;
   let oc = open_out (base_dir ^ file_sep.fmodule ^ interface_suffix) in
-  let file = Print_rocq.tops file_cfml in
+  let tops =
+    match !backend with
+    | Iris -> Print_rocq.Iris.print
+    | CFML -> Print_rocq.CFML.print
+  in
+  let file = tops file_cfml in
   Out_channel.output_string oc file;
   close_out oc;
   if mk_project then mk_base base_dir file_sep.fmodule;
-  let _ = Sys.command (Printf.sprintf "cd %s && make" base_dir) in
+  let _ = Sys.command (Printf.sprintf "cd %s && make 1> /dev/null" base_dir) in
   ()

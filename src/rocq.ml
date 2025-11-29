@@ -45,7 +45,6 @@ and rocqs = rocq list
 and spec = {
   spec_nm : var;
   spec_tvars : var list;
-  spec_forall : typed_vars;
   spec_pre : rocq_seps;
   spec_args : spec_var list;
   spec_ret : spec_var list;
@@ -60,18 +59,8 @@ and rocq_sep =
 
 and rocq_seps = rocq_sep list
 
-let rocq_spec spec_nm spec_tvars spec_forall spec_pre spec_args spec_ret
-    spec_post =
-  Rocq_spec
-    {
-      spec_nm;
-      spec_tvars;
-      spec_forall;
-      spec_pre;
-      spec_args;
-      spec_ret;
-      spec_post;
-    }
+let rocq_spec spec_nm spec_tvars spec_pre spec_args spec_ret spec_post =
+  Rocq_spec { spec_nm; spec_tvars; spec_pre; spec_args; spec_ret; spec_post }
 
 let tv var_name var_type = { var_name = Some var_name; var_type }
 let inst var_type = { var_name = None; var_type = Rocq_var var_type }
