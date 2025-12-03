@@ -269,8 +269,7 @@ let rocq_preds cs = rocq_impls cs typ_prop
 
 (** Product type [(c1 * c2)%type] *)
 
-let rocq_prod c1 c2 =
-  rocq_apps (Rocq_var "Corelib.Init.Datatypes.prod") [ c1; c2 ]
+let rocq_prod c1 c2 = Rocq_infix (c1, "*", c2)
 
 (** Product type [(c1 * c2 * .. * cN)%type], or [unit] if the list is empty *)
 

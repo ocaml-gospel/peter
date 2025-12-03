@@ -90,6 +90,7 @@ let inline = function
 (** This flag notes if we are translating the Gospel standard library. *)
 let is_stdlib = ref false
 
+let empty_decls = { declarations = []; obligations = [] }
 let stdlib_skip nm = !is_stdlib && inline nm.id_str
 let is_internal id = !is_stdlib || Ident.is_stdlib id || Ident.is_primitive id
 
@@ -207,6 +208,8 @@ exception Wow
 
 let rec rocq_term path deps tvar_tbl t =
   let rocq_term = rocq_term path deps tvar_tbl in
+  let rocq_ty = rocq_ty in
+  let rocq_tv = rocq_tv in
   match t.t_node with
   | Tvar (q, ptys) ->
       update_deps deps q;
@@ -266,6 +269,7 @@ let rec rocq_term path deps tvar_tbl t =
 module type Sep_to_rocq = sig
   val inhab : var -> var
   val ocaml_tdef : type_decl -> decls
+  val rocq_ocaml_ty : (string * string list) list ref -> pty -> tvar list * rocq
   val import_sl : rocqtops
 
   val pred_typ :
@@ -276,26 +280,14 @@ end
 
 module Sep_to_iris : Sep_to_rocq = struct
   let inhab v = "Inhabited " ^ v
-
-  let ocaml_tdef def =
-    let tvars = tv_tvars def.type_args in
-    {
-      declarations =
-        [ rocqtop_def false def.type_name.id_str [] [] tvars typ rocq_val ];
-      obligations = [];
-    }
+  let ocaml_tdef _ = empty_decls
+  let rocq_ocaml_ty _ _ = ([], rocq_val)
 
   let import_stdpp =
     [ Rocqtop_require_import [ "Stdlib.ZArith.BinInt"; "stdpp.base" ] ]
 
   let import_stdpp_impl =
-    [
-      Rocqtop_require_import
-        [
-          "Stdlib_stdpp.gospelstdlib_verified_stdpp";
-          "Stdlib_stdpp.gospelstdlib_mli_stdpp";
-        ];
-    ]
+    [ Rocqtop_require_import [ "Stdlib_stdpp.iris_core" ] ]
 
   let import_sl =
     [
@@ -306,12 +298,16 @@ module Sep_to_iris : Sep_to_rocq = struct
           "iris.heap_lang.notation";
           "iris.prelude.options";
         ];
+      Rocqtop_custom "Parameter Σ : gFunctors";
+      Rocqtop_custom "Notation iProp := (iProp Σ)";
     ]
 
+  let i_prop = rocq_var "iProp"
+
   let pred_typ path deps lens =
-    let i_prop = rocq_var "iProp" in
+    let _, ocaml_ty = rocq_ocaml_ty deps lens.locaml in
     let model_ty = rocq_ty deps lens.lmodel in
-    let ty = rocq_impls [ rocq_val; model_ty ] i_prop in
+    let ty = rocq_impls [ ocaml_ty; model_ty ] i_prop in
     let l = mk_insts_path path !deps in
     rocq_insts l ty
 
@@ -323,6 +319,7 @@ end
 module Sep_to_CFML : Sep_to_rocq = struct
   let inhab v = "Inhab " ^ v
   let ocaml_tdef _ = assert false
+  let rocq_ocaml_ty _ _ = assert false
 
   let import_tlc =
     [
@@ -371,7 +368,6 @@ end
 module Make (M : Sep_to_rocq) : P = struct
   open M
 
-  let empty_decls = { declarations = []; obligations = [] }
   let to_triple s = { s with id_str = s.id_str ^ "_spec" }
 
   let spec_arg = function
@@ -387,10 +383,10 @@ module Make (M : Sep_to_rocq) : P = struct
     let () = List.iter (collect_tvars tbl) tvars in
     tbl
 
-  let triple_val_to_ts = function
+  let triple_val_to_ts deps = function
     | Sast.Unit | Wildcard -> []
-    | Ghost ts -> [ ts ]
-    | Value v -> [ v.arg_ocaml; v.arg_model ]
+    | Ghost ts -> [ rocq_tv deps ts ]
+    | Value v -> [ rocq_tv deps v.arg_ocaml; rocq_tv deps v.arg_model ]
 
   let sep_term path deps tbl t =
     let rec sep_term = function
@@ -410,7 +406,9 @@ module Make (M : Sep_to_rocq) : P = struct
     in
     sep_term t
 
-  let sep_terms path deps tbl = List.map (sep_term path deps tbl)
+  let sep_terms path deps tbl = function
+    | [] -> [ Rocq_hempty ]
+    | l -> List.map (sep_term path deps tbl) l
 
   let triple_rets l =
     match l with [] -> [ Rocq.Unit ] | rets -> spec_args rets
@@ -418,12 +416,19 @@ module Make (M : Sep_to_rocq) : P = struct
   let inhabs l = List.map inhab l
 
   let gen_spec deps path triple =
-    let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
-    let tbl = gen_tbl all_ts in
+    let all_ts = List.concat_map (triple_val_to_ts deps) triple.triple_args in
+    let tbl =
+      gen_tbl
+        (List.concat_map
+           (function
+             | Sast.Unit | Wildcard -> []
+             | Ghost v -> [ v ]
+             | Value v -> [ v.arg_ocaml; v.arg_model ])
+           triple.triple_args)
+    in
     let poly = tvars triple.triple_poly in
     let args = spec_args triple.triple_args in
     let inhabs = inhabs poly in
-    let all_vars = List.map (rocq_tv deps) all_ts in
     let pre = sep_terms path deps tbl triple.triple_pre in
     let ex, posts = triple.triple_post in
     let post = sep_terms path deps tbl posts in
@@ -432,7 +437,7 @@ module Make (M : Sep_to_rocq) : P = struct
     let ret_vars = triple_rets triple.triple_rets in
     let f = "_" ^ triple.triple_name.id_str in
     let deps = mk_insts_path path !deps in
-    let all_vars = List.map inst (deps @ inhabs) @ all_vars in
+    let all_vars = List.map inst (deps @ inhabs) @ all_ts in
     rocq_foralls all_vars (rocq_spec f poly pre args ret_vars post)
 
   let abstract id nm path deps tvars rocq =
@@ -451,7 +456,8 @@ module Make (M : Sep_to_rocq) : P = struct
     abstract nm.id_tag nm.id_str path deps tvars rocq
 
   let tdef path tdef =
-    if tdef.type_ocaml then ocaml_tdef tdef
+    let ocaml = tdef.type_ocaml in
+    if ocaml then ocaml_tdef tdef
     else
       let tname = tdef.type_name.id_str in
       match tdef.type_def with
@@ -505,8 +511,8 @@ module Make (M : Sep_to_rocq) : P = struct
         abstract_id triple_name path !deps triple.triple_poly fun_triple
     | Val v ->
         let deps = ref [] in
-        let typ = rocq_ty deps v.vtype in
-        abstract_id v.vname path !deps v.vtvars typ
+        let tvars, typ = rocq_ocaml_ty deps v.vtype in
+        abstract_id v.vname path !deps tvars typ
     | Function f -> (
         if stdlib_skip f.fun_name then empty_decls
         else

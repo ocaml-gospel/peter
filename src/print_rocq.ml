@@ -317,10 +317,7 @@ module rec Iris : S = struct
   let print_set v t =
     lbrace ^^ space ^^ string v ^^ space ^^ bar ^^ space ^^ expr1 t ^^ rbrace
 
-  let spec_var = function
-    | Var x -> x
-    | Wildcard -> assert false
-    | Unit -> "#()"
+  let spec_var = function Var x -> x | Wildcard -> "#()" | Unit -> "#()"
 
   let iris_rets rets =
     let vars = List.map spec_var rets in
