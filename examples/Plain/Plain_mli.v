@@ -38,7 +38,7 @@ Module Declarations (Heap :H) .
     create_spec : forall { A }, forall
     `{ _T_sig }
     `{ Inhabited A },
-    {{{ True }}}
+    {{{  True  }}}
     create  #()
     {{{  (__q :t A) , RET (__q :t A);
     ∃ (q :bag (Corelib.Init.Datatypes.prod val Z)),

@@ -412,7 +412,9 @@ module Make (M : Sep_to_rocq) : P = struct
     in
     sep_term t
 
-  let sep_terms path deps tbl = List.map (sep_term path deps tbl)
+  let sep_terms path deps tbl = function
+    | [] -> [ Rocq_hempty ]
+    | l -> List.map (sep_term path deps tbl) l
 
   let triple_rets deps l =
     match l with [] -> [ Rocq.Unit ] | rets -> spec_args deps rets

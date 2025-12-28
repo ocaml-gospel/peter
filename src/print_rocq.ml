@@ -351,9 +351,7 @@ module rec Iris : S = struct
         let q = match q with Forall -> "∀" | Exists -> "∃" in
         quant_vars q vars (sep_exprs seps)
 
-  and sep_exprs = function
-    | [] -> empty
-    | l -> separate_map ~sep:(string "∗") sep_expr l
+  and sep_exprs = function l -> separate_map ~sep:(string "∗") sep_expr l
 
   let print_spec spec =
     let triple b = b ^^ b ^^ b in
