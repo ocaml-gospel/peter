@@ -203,8 +203,6 @@ let let_pat p =
         ts
   | _ -> assert false
 
-exception Wow
-
 let rec rocq_term path deps tvar_tbl t =
   let rocq_term = rocq_term path deps tvar_tbl in
   match t.t_node with
@@ -272,6 +270,7 @@ module type Sep_to_rocq = sig
     string list -> (string * string list) list ref -> Tast.lens_info -> rocq
 
   val import_stdlib : gospelstdlib:bool -> rocqtops
+  val decl_args : (string * string) list
 end
 
 module Sep_to_iris : Sep_to_rocq = struct
@@ -289,13 +288,7 @@ module Sep_to_iris : Sep_to_rocq = struct
     [ Rocqtop_require_import [ "Stdlib.ZArith.BinInt"; "stdpp.base" ] ]
 
   let import_stdpp_impl =
-    [
-      Rocqtop_require_import
-        [
-          "Stdlib_stdpp.gospelstdlib_verified_stdpp";
-          "Stdlib_stdpp.gospelstdlib_mli_stdpp";
-        ];
-    ]
+    [ Rocqtop_require_import [ "Stdlib_stdpp.iris_core" ] ]
 
   let import_sl =
     [
@@ -311,13 +304,15 @@ module Sep_to_iris : Sep_to_rocq = struct
   let pred_typ path deps lens =
     let i_prop = rocq_var "iProp" in
     let model_ty = rocq_ty deps lens.lmodel in
-    let ty = rocq_impls [ rocq_val; model_ty ] i_prop in
+    let ty = rocq_impls [ rocq_ty deps lens.locaml; model_ty ] i_prop in
     let l = mk_insts_path path !deps in
     rocq_insts l ty
 
   let import_stdlib ~gospelstdlib =
     (if gospelstdlib then import_stdpp else import_stdpp_impl)
     @ [ Rocqtop_custom "Local Open Scope Z_scope" ]
+
+  let decl_args = [ ("Heap", "H") ]
 end
 
 module Sep_to_CFML : Sep_to_rocq = struct
@@ -362,6 +357,8 @@ module Sep_to_CFML : Sep_to_rocq = struct
   let import_stdlib ~gospelstdlib =
     (if gospelstdlib then import_tlc else import_tlc_impl)
     @ [ Rocqtop_custom "Local Open Scope comp_scope" ]
+
+  let decl_args = []
 end
 
 module type P = sig
@@ -374,13 +371,17 @@ module Make (M : Sep_to_rocq) : P = struct
   let empty_decls = { declarations = []; obligations = [] }
   let to_triple s = { s with id_str = s.id_str ^ "_spec" }
 
-  let spec_arg = function
+  let spec_arg deps = function
     | Sast.Unit -> Some Unit
     | Wildcard -> Some Wildcard
     | Ghost _ -> None
-    | Value v -> Some (Var v.arg_ocaml.ts_id.id_str)
+    | Value v ->
+        let var =
+          tv v.arg_ocaml.ts_id.id_str (rocq_ty deps v.arg_ocaml.ts_ty)
+        in
+        Some (Var var)
 
-  let spec_args = List.filter_map spec_arg
+  let spec_args deps = List.filter_map (spec_arg deps)
 
   let gen_tbl tvars =
     let tbl = IdTable.create 100 in
@@ -398,6 +399,7 @@ module Make (M : Sep_to_rocq) : P = struct
       | Lift (sym, arg1, arg2) ->
           let ocaml = rocq_term path deps tbl arg1 in
           let model = rocq_term path deps tbl arg2 in
+          let () = update_deps deps (Qid sym.ps_name) in
           Rocq_lift (sym.ps_name.id_str, ocaml, model)
       | Quant (q, vs, t) ->
           let q = match q with Tforall -> Forall | Texists -> Exists in
@@ -412,8 +414,8 @@ module Make (M : Sep_to_rocq) : P = struct
 
   let sep_terms path deps tbl = List.map (sep_term path deps tbl)
 
-  let triple_rets l =
-    match l with [] -> [ Rocq.Unit ] | rets -> spec_args rets
+  let triple_rets deps l =
+    match l with [] -> [ Rocq.Unit ] | rets -> spec_args deps rets
 
   let inhabs l = List.map inhab l
 
@@ -421,7 +423,7 @@ module Make (M : Sep_to_rocq) : P = struct
     let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
     let tbl = gen_tbl all_ts in
     let poly = tvars triple.triple_poly in
-    let args = spec_args triple.triple_args in
+    let args = spec_args deps triple.triple_args in
     let inhabs = inhabs poly in
     let all_vars = List.map (rocq_tv deps) all_ts in
     let pre = sep_terms path deps tbl triple.triple_pre in
@@ -429,8 +431,8 @@ module Make (M : Sep_to_rocq) : P = struct
     let post = sep_terms path deps tbl posts in
     let vars = List.map (rocq_tv deps) ex in
     let post = rocq_hexists vars post in
-    let ret_vars = triple_rets triple.triple_rets in
-    let f = "_" ^ triple.triple_name.id_str in
+    let ret_vars = triple_rets deps triple.triple_rets in
+    let f = triple.triple_name.id_str in
     let deps = mk_insts_path path !deps in
     let all_vars = List.map inst (deps @ inhabs) @ all_vars in
     rocq_foralls all_vars (rocq_spec f poly pre args ret_vars post)
@@ -502,11 +504,11 @@ module Make (M : Sep_to_rocq) : P = struct
         let deps = ref [] in
         let fun_triple = gen_spec deps path triple in
         let triple_name = to_triple triple.triple_name in
+        deps := (class_name triple.triple_name.id_str, []) :: !deps;
         abstract_id triple_name path !deps triple.triple_poly fun_triple
     | Val v ->
         let deps = ref [] in
-        let typ = rocq_ty deps v.vtype in
-        abstract_id v.vname path !deps v.vtvars typ
+        abstract_id v.vname path !deps [] rocq_val
     | Function f -> (
         if stdlib_skip f.fun_name then empty_decls
         else
@@ -549,9 +551,9 @@ module Make (M : Sep_to_rocq) : P = struct
         let statements = sep_defs (nm_var :: path) l in
 
         let import = import [ decl_mod ^ "." ^ nm_var ] in
-        let declarations = [ rocq_module nm_var statements.declarations ] in
+        let declarations = [ rocq_module nm_var [] statements.declarations ] in
         let obligations =
-          [ rocq_module nm_var (import :: statements.obligations) ]
+          [ rocq_module nm_var [] (import :: statements.obligations) ]
         in
         { declarations; obligations }
     | Import l ->
@@ -594,12 +596,30 @@ module Make (M : Sep_to_rocq) : P = struct
         in
         let set_obl = tinst "_set_inst" "_set_sig" in
         ([ set_decl ], [ set_obl ])
-      else ([], [])
+      else
+        let open Gospel_checker.Utils.Fmt in
+        let mod_nms = List.map fst M.decl_args in
+        let extra_obl =
+          if M.decl_args = [] then []
+          else
+            [
+              Rocqtop_custom
+                (Format.asprintf "Module %s := %s%a" decl_mod decl_mod
+                   (list ~sep:sp ~first:sp string)
+                   mod_nms);
+            ]
+        in
+        let extra_decl = [ import mod_nms ] in
+        (extra_decl, extra_obl)
     in
-    let decls = rocq_module decl_mod (extra_decl @ defs.declarations) in
+
+    let decl_args = List.map (fun (v, t) -> tv v (Rocq_var t)) M.decl_args in
+    let decls =
+      rocq_module decl_mod decl_args (extra_decl @ defs.declarations)
+    in
     let obls =
-      mod_type obl_mod
-        ((Rocqtop_import [ decl_mod ] :: extra_obl) @ defs.obligations)
+      mod_type obl_mod decl_args
+        ((extra_obl @ [ Rocqtop_import [ decl_mod ] ]) @ defs.obligations)
     in
     let tops = [ decls; obls ] in
     imports @ tops

@@ -282,13 +282,8 @@ module Printer (Sep_printer : S) = struct
     | Rocqtop_import xs -> string "Import " ^^ flow_map space string xs
     | Rocqtop_require_import xs ->
         string "Require Import " ^^ flow_map space string xs
-    | Rocqtop_module (x, defs) ->
-        string "Module" ^^ space ^^ string x ^^ dot ^^ hardline
-        ^^ nest (tops defs)
-        ^^ hardline ^^ string "End " ^^ string x
-    | Rocqtop_module_type (x, d) ->
-        string "Module Type" ^^ space ^^ string x ^^ dot ^^ hardline ^^ tops d
-        ^^ hardline ^^ string "End " ^^ string x
+    | Rocqtop_module (x, args, defs) -> print_module "Module" x args defs
+    | Rocqtop_module_type (x, args, d) -> print_module "Module Type" x args d
     | Rocqtop_module_type_include x -> string "Include Type %s." ^^ string x
     | Rocqtop_custom x -> string x
     | Rocqtop_section x -> string "Section " ^^ string x
@@ -298,6 +293,13 @@ module Printer (Sep_printer : S) = struct
         string "Notation " ^^ string nm ^^ colonequals ^^ break 1
         ^^ parens (expr e)
         ^^ string " (only parsing)"
+
+  and print_module prefix x args defs =
+    string prefix ^^ space ^^ string x
+    ^^ separate_map ~sep:space tvar args
+    ^^ dot ^^ hardline
+    ^^ nest (tops defs)
+    ^^ hardline ^^ string "End " ^^ string x
 
   and tops ?(first = hardline) ?(last = hardline) ts : document =
     separate_map (fun t -> top t ^^ dot) ~sep:hardline2 ~first ~last ts
@@ -317,37 +319,47 @@ module rec Iris : S = struct
   let print_set v t =
     lbrace ^^ space ^^ string v ^^ space ^^ bar ^^ space ^^ expr1 t ^^ rbrace
 
-  let spec_var = function
-    | Var x -> x
+  let spec_var named = function
+    | Var x ->
+        named := true;
+        tvar x
     | Wildcard -> assert false
-    | Unit -> "#()"
+    | Unit -> string "#()"
+
+  let spec_var_opt = function
+    | Var x -> Some (tvar x)
+    | Wildcard -> assert false
+    | Unit -> None
 
   let iris_rets rets =
-    let vars = List.map spec_var rets in
-    let comma_if_cons =
-      if List.for_all (( = ) "#()") vars then empty else comma ^^ space
-    in
-    let ret = match vars with [ x ] -> string x | _ -> tuple string vars in
-    let vars = List.filter (( <> ) "#()") vars in
-    separate_map string vars ^^ comma_if_cons ^^ string "RET " ^^ ret ^^ semi
-    ^^ space
+    let named = ref false in
+    let vars = List.map (spec_var named) rets in
+    let ex = List.filter_map spec_var_opt rets in
+    let comma_if_cons = if !named then comma ^^ space else empty in
+    let ret = match vars with [ x ] -> x | _ -> tuple (fun x -> x) vars in
+    separate_map (fun x -> x) ex
+    ^^ comma_if_cons ^^ string "RET " ^^ ret ^^ semi ^^ space
+
+  let empty = string "True"
 
   let rec sep_expr = function
     | Rocq_pure e -> corners (expr e)
-    | Rocq_hempty -> string "True"
+    | Rocq_hempty -> empty
     | Rocq_lift (v, e1, e2) ->
         group (string v ^^ break 1 ^^ expr0 e1 ^^ break 1 ^^ expr0 e2)
     | Rocq_hquant (q, vars, seps) ->
         let q = match q with Forall -> "∀" | Exists -> "∃" in
         quant_vars q vars (sep_exprs seps)
 
-  and sep_exprs l = separate_map ~sep:(string "∗") sep_expr l
+  and sep_exprs = function
+    | [] -> empty
+    | l -> separate_map ~sep:(string "∗") sep_expr l
 
   let print_spec spec =
     let triple b = b ^^ b ^^ b in
     triple lbrace ^^ space ^^ sep_exprs spec.spec_pre ^^ space ^^ triple rbrace
     ^^ break 1 ^^ string spec.spec_nm ^^ space
-    ^^ separate_map (fun x -> string (spec_var x)) spec.spec_args
+    ^^ separate_map (fun x -> spec_var (ref true) x) spec.spec_args
     ^^ break 0 ^^ triple lbrace ^^ space ^^ iris_rets spec.spec_ret
     ^^ sep_exprs spec.spec_post ^^ space ^^ triple rbrace
 end
@@ -358,7 +370,8 @@ module rec CFML : S = struct
 
   let spec_vars l =
     let spec_var v =
-      string (match v with Unit | Wildcard -> "_" | Var v -> v)
+      string
+        (match v with Unit | Wildcard -> "_" | Var v -> Option.get v.var_name)
     in
     separate_map spec_var l
 
@@ -379,7 +392,10 @@ module rec CFML : S = struct
     | [ Unit ] -> string "POSTUNIT" ^^ post
     | [ Var x ] ->
         string "POST"
-        ^^ parens (string "fun" ^^ space ^^ string x ^^ doublearrow ^^ post)
+        ^^ parens
+             (string "fun" ^^ space
+             ^^ string (Option.get x.var_name)
+             ^^ doublearrow ^^ post)
     | l ->
         let ret_name = "_rets_" in
         string "POST"

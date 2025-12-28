@@ -1,4 +1,4 @@
-Require Import Stdlib_stdpp.gospelstdlib_verified_stdpp Stdlib_stdpp.gospelstdlib_mli_stdpp.
+Require Import Stdlib_stdpp.iris_core.
 
 Local Open Scope Z_scope.
 
@@ -8,31 +8,40 @@ Require Import Stdlib.Floats.Floats Stdlib.ZArith.BinIntDef Stdlib.Strings.Ascii
 
 Require Import iris.proofmode.proofmode iris.heap_lang.proofmode iris.heap_lang.notation iris.prelude.options.
 
-Module Type wow.
-  Parameter Σ : gFunctors.
-End wow.
+Module Declarations (Heap :H) .
 
-Module Declarations.
+  Import Heap.
 
   Import Bag.
-  Parameter Σ : gFunctors.
-  Notation iProp := (iProp Σ).
+
+  Definition priority : Type :=
+  val.
+
+  Class _Priority_sig := {
+    Priority : priority -> Z -> iProp
+  }.
+
+  Definition t (A :Type) : Type :=
+  val.
 
   Class _T_sig := {
-    T : forall { A }, val ->
-    (bag (Corelib.Init.Datatypes.prod A Z)) ->
+    T : forall { A }, (t A) ->
+    (bag (Corelib.Init.Datatypes.prod val Z)) ->
     iProp
   }.
 
   Class _create_sig := {
-      _create : val
-    }.
+    create : val
+  }.
 
-  Class _create_spec_sig := {
-    create_spec : forall { A }, forall `{ Inhabited A }, {{{  True }}}
-    _create  #()
-    {{{  __q , RET __q;
-    ∃ (q :bag (Corelib.Init.Datatypes.prod A Z)),
+  Class _create_spec_sig `{ @_create_sig } `{ @_T_sig } := {
+    create_spec : forall { A }, forall
+    `{ _T_sig }
+    `{ Inhabited A },
+    {{{ True }}}
+    create  #()
+    {{{  (__q :t A) , RET (__q :t A);
+    ∃ (q :bag (Corelib.Init.Datatypes.prod val Z)),
     T __q q
 
      }}}
@@ -40,14 +49,21 @@ Module Declarations.
 
 End Declarations.
 
-Module Type Obligations.
+Module Type Obligations (Heap :H) .
 
-Import Declarations.
+  Module Declarations := Declarations
+Heap.
 
-Import Bag.
+  Import Declarations.
 
-Global Declare Instance _T_inst :_T_sig.
+  Import Bag.
 
-Global Declare Instance _create_spec_inst :_create_spec_sig.
+  Global Declare Instance _Priority_inst :_Priority_sig.
+
+  Global Declare Instance _T_inst :_T_sig.
+
+  Global Declare Instance _create_inst :_create_sig.
+
+  Global Declare Instance _create_spec_inst :_create_spec_sig.
 
 End Obligations.

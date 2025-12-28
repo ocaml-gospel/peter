@@ -7,16 +7,15 @@ let list_make n v = List.init n (fun _ -> v)
 (*#########################################################################*)
 (* ** Syntax of Rocq expressions *)
 
+type var = string
 (** Rocq variables and paths *)
 
 type quant = Exists | Forall
-type var = string
 type vars = var list
-type spec_var = Var of var | Wildcard | Unit
-type rocq_path = Rocqp_var of var | Rocqp_dot of rocq_path * string
 
 type typed_var = { var_name : var option; var_type : rocq }
 and typed_vars = typed_var list
+and spec_var = Var of typed_var | Wildcard | Unit
 
 (** Rocq expressions *)
 
@@ -98,8 +97,8 @@ type rocqtop =
   | Rocqtop_import of vars
   | Rocqtop_class of tclass
   | Rocqtop_require_import of vars
-  | Rocqtop_module of var * rocqtop list
-  | Rocqtop_module_type of var * rocqtop list
+  | Rocqtop_module of var * typed_var list * rocqtop list
+  | Rocqtop_module_type of var * typed_var list * rocqtop list
   | Rocqtop_module_type_include of var
   | Rocqtop_custom of string
   | Rocqtop_section of var
@@ -120,8 +119,8 @@ let tclass cname cdeps ctvars cproj crocq =
   Rocqtop_class { cname; cdeps; ctvars; cproj; crocq }
 
 let tinst inst_nm inst_class = Rocqtop_instance { inst_nm; inst_class }
-let rocq_module nm tops = Rocqtop_module (nm, tops)
-let mod_type nm tops = Rocqtop_module_type (nm, tops)
+let rocq_module nm args tops = Rocqtop_module (nm, args, tops)
+let mod_type nm args tops = Rocqtop_module_type (nm, args, tops)
 let import nm = Rocqtop_import nm
 
 (** Inductive definitions *)
