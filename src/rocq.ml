@@ -89,11 +89,17 @@ type tclass = {
   crocq : rocq;
 }
 
+type record = {
+  rname : var;
+  rvars : typed_var list;
+  rfields : (string * rocq) list;
+}
+
 type rocqtop =
   | Rocqtop_def of definition
   | Rocqtop_param of param
   | Rocqtop_instance of instance
-  | Rocqtop_record of rocqind
+  | Rocqtop_record of record
   | Rocqtop_import of vars
   | Rocqtop_class of tclass
   | Rocqtop_require_import of vars
@@ -104,14 +110,6 @@ type rocqtop =
   | Rocqtop_section of var
   | Rocqtop_context of typed_vars
   | Rocqtop_notation of var * rocq
-
-and rocqind = {
-  rocqind_name : var;
-  rocqind_constructor_name : var;
-  rocqind_targs : typed_vars;
-  rocqind_ret : rocq;
-  rocqind_branches : typed_vars;
-}
 
 and rocqtops = rocqtop list
 

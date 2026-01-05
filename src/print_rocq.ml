@@ -33,6 +33,7 @@ let doublearrow = string "=>"
 let colonequals = string " :="
 let spacecolon = string " :"
 let hardline2 = hardline ^^ hardline
+let semi = string ";" ^^ break 1
 
 (* -------------------------------------------------------------------------- *)
 
@@ -209,12 +210,6 @@ module Printer (Sep_printer : S) = struct
 
   (* -------------------------------------------------------------------------- *)
 
-  (* A list of field type declarations, separated with semicolons. *)
-
-  let fields_type xts = separate_map ~sep:(semi ^^ break 1) tvar xts
-
-  (* -------------------------------------------------------------------------- *)
-
   (* Tools for toplevel elements. *)
 
   (* A definition, without a leading keyword, but with a leading space.
@@ -227,28 +222,22 @@ module Printer (Sep_printer : S) = struct
 
   let parameter nm ret = space ^^ string nm ^^ spacecolon ^^ expr1 ret
 
-  (* The right-hand side of a record declaration. [ Foo {| ... |}]. *)
-
-  let record_rhs r =
-    space
-    ^^ string r.rocqind_constructor_name
-    ^^ space
-    ^^ braces (fields_type r.rocqind_branches)
-
   (* The left-hand side of a record or sum declaration. [ foo params : T := rhs]. *)
-
-  let inductive_lhs rhs r =
-    definition
-      (string r.rocqind_name ^^ tvars r.rocqind_targs)
-      (expr r.rocqind_ret)
-    ^^ rhs r
-
-  let type_var v = lbrace ^^ string v ^^ rbrace
-  let type_vars = separate_map type_var
 
   (* Bindings, or annotations: [x : t]. *)
 
   let bindings ~first = separate_map ~first tvar
+
+  let fields =
+    separate_map ~sep:semi ~first:empty ~last:empty (fun (v, t) ->
+        string v ^^ spacecolon ^^ break 1 ^^ expr t)
+
+  let record r =
+    definition (string r.rname ^^ bindings ~first:space r.rvars) (expr typ)
+    ^^ braces (fields r.rfields)
+
+  let type_var v = lbrace ^^ string v ^^ rbrace
+  let type_vars = separate_map type_var
 
   (* -------------------------------------------------------------------------- *)
 
@@ -278,7 +267,7 @@ module Printer (Sep_printer : S) = struct
     | Rocqtop_instance instance ->
         string "Global Declare Instance "
         ^^ string instance.inst_nm ^^ spacecolon ^^ string instance.inst_class
-    | Rocqtop_record r -> string "Record" ^^ inductive_lhs record_rhs r
+    | Rocqtop_record r -> string "Record" ^^ record r
     | Rocqtop_import xs -> string "Import " ^^ flow_map space string xs
     | Rocqtop_require_import xs ->
         string "Require Import " ^^ flow_map space string xs

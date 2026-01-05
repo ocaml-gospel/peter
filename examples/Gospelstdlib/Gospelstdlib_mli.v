@@ -2,6 +2,8 @@ Require Import Stdlib.ZArith.BinInt stdpp.base.
 
 Local Open Scope Z_scope.
 
+Require Import Gospel.primitives.
+
 Require Import Stdlib.Floats.Floats Stdlib.ZArith.BinIntDef Stdlib.Strings.Ascii.
 
 Module Declarations.
@@ -34,31 +36,31 @@ Module Declarations.
   A -> B.
 
   Class _succ_sig := {
-    succ : Z -> Z
+    succ : integer -> integer
   }.
 
   Class _pred_sig := {
-    pred : Z -> Z
+    pred : integer -> integer
   }.
 
   Class __mod_sig := {
-    _mod : Z -> Z -> Z
+    _mod : integer -> integer -> integer
   }.
 
   Class _pow_sig := {
-    pow : Z -> Z -> Z
+    pow : integer -> integer -> integer
   }.
 
   Class _abs_sig := {
-    abs : Z -> Z
+    abs : integer -> integer
   }.
 
   Class _min_sig := {
-    min : Z -> Z -> Z
+    min : integer -> integer -> integer
   }.
 
   Class _max_sig := {
-    max : Z -> Z -> Z
+    max : integer -> integer -> integer
   }.
 
   Class _app_sig `{ @_sequence_sig } := {
@@ -69,25 +71,25 @@ Module Declarations.
 
   Class _seq_get_sig `{ @_sequence_sig } := {
     seq_get : forall { A }, forall `{ Inhabited A }, (sequence A) ->
-    Z ->
+    integer ->
     A
   }.
 
   Class _seq_sub_sig `{ @_sequence_sig } := {
     seq_sub : forall { A }, forall `{ Inhabited A }, (sequence A) ->
-    Z ->
-    Z -> (sequence A)
+    integer ->
+    integer -> (sequence A)
   }.
 
   Class _seq_sub_l_sig `{ @_sequence_sig } := {
     seq_sub_l : forall { A }, forall `{ Inhabited A }, (sequence A) ->
-    Z ->
+    integer ->
     sequence A
   }.
 
   Class _seq_sub_r_sig `{ @_sequence_sig } := {
     seq_sub_r : forall { A }, forall `{ Inhabited A }, (sequence A) ->
-    Z ->
+    integer ->
     sequence A
   }.
 
@@ -96,7 +98,7 @@ Module Declarations.
     A ->
     A) ->
     A ->
-    Prop
+    prop
   }.
 
   Class _monoid_def_sig `{ @_monoid_sig } := {
@@ -115,7 +117,7 @@ Module Declarations.
     A ->
     A) ->
     A ->
-    Prop
+    prop
   }.
 
   Class _comm_monoid_def_sig
@@ -135,13 +137,13 @@ Module Declarations.
     sequence A.
 
     Class _length_sig `{ @_sequence_sig } := {
-      length : forall { A }, forall `{ Inhabited A }, (t A) -> Z
+      length : forall { A }, forall `{ Inhabited A }, (t A) -> integer
     }.
 
     Class _in_range_sig `{ @_sequence_sig } := {
       in_range : forall { A }, forall `{ Inhabited A }, (t A) ->
-      Z ->
-      Prop
+      integer ->
+      prop
     }.
 
     Class _in_range_def_sig
@@ -150,7 +152,7 @@ Module Declarations.
     `{ @_length_sig _ } := {
       in_range_def : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i :Z),
+      (i :integer),
       (in_range s i) <-> ((0 <= i) /\ (i < (length s)))
     }.
 
@@ -170,7 +172,7 @@ Module Declarations.
     `{ @_length_sig _ } := {
       subseq_l : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i :Z),
+      (i :integer),
       (in_range s i) -> ((seq_sub_l s i) = (seq_sub s i (length s)))
     }.
 
@@ -181,7 +183,7 @@ Module Declarations.
     `{ @_seq_sub_sig _ } := {
       subseq_r : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i :Z),
+      (i :integer),
       (in_range s i) -> ((seq_sub_r s i) = (seq_sub s 0 i))
     }.
 
@@ -192,9 +194,9 @@ Module Declarations.
     `{ @_seq_sub_sig _ } := {
       subseq : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i :Z)
-      (i1 :Z)
-      (i2 :Z),
+      (i :integer)
+      (i1 :integer)
+      (i2 :integer),
       ((0 <= i1) /\ ((i1 <= i) /\ ((i < i2) /\ (i2 <= (length s))))) -> ((seq_get s i) = (seq_get (seq_sub s i1 i2) (i - i1)))
     }.
 
@@ -204,8 +206,8 @@ Module Declarations.
     `{ @_seq_sub_sig _ } := {
       subseq_len : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i1 :Z)
-      (i2 :Z),
+      (i1 :integer)
+      (i2 :integer),
       ((0 <= i1) /\ ((i1 <= i2) /\ (i2 < (length s)))) -> ((length (seq_sub s i1 i2)) = (i2 - i1))
     }.
 
@@ -221,8 +223,8 @@ Module Declarations.
     }.
 
     Class _init_sig `{ @_sequence_sig } := {
-      init : forall { A }, forall `{ Inhabited A }, Z ->
-      (Z -> A) ->
+      init : forall { A }, forall `{ Inhabited A }, integer ->
+      (integer -> A) ->
       t A
     }.
 
@@ -231,8 +233,8 @@ Module Declarations.
     `{ @_length_sig _ }
     `{ @_init_sig _ } := {
       init_length : forall { A }, forall `{ Inhabited A }, forall
-      (n :Z)
-      (f :Z -> A),
+      (n :integer)
+      (f :integer -> A),
       (n >= 0) -> ((length (init n f)) = n)
     }.
 
@@ -241,9 +243,9 @@ Module Declarations.
     `{ @_seq_get_sig _ }
     `{ @_init_sig _ } := {
       init_elems : forall { A }, forall `{ Inhabited A }, forall
-      (n :Z)
-      (f :Z -> A)
-      (i :Z),
+      (n :integer)
+      (f :integer -> A)
+      (i :integer),
       ((0 <= i) /\ (i < n)) -> ((seq_get (init n f) i) = (f i))
     }.
 
@@ -257,7 +259,7 @@ Module Declarations.
     `{ @_init_sig _ } := {
       singleton_def : forall { A }, forall `{ Inhabited A }, forall
       (x :A)
-      (f :Z -> A),
+      (f :integer -> A),
       ((f 0) = x) -> ((singleton x) = (init 1 f))
     }.
 
@@ -356,7 +358,7 @@ Module Declarations.
     `{ @_app_sig _ } := {
       append_elems_left : forall { A }, forall
       `{ Inhabited A },
-      forall (s :sequence A) (s' :sequence A) (i :Z), (in_range s i) -> ((seq_get (app s s') i) = (seq_get s i))
+      forall (s :sequence A) (s' :sequence A) (i :integer), (in_range s i) -> ((seq_get (app s s') i) = (seq_get s i))
     }.
 
     Class _append_elems_right_sig
@@ -366,13 +368,13 @@ Module Declarations.
     `{ @_app_sig _ } := {
       append_elems_right : forall { A }, forall
       `{ Inhabited A },
-      forall (s :sequence A) (s' :sequence A) (i :Z), (((length s) <= i) /\ (i < ((length s) + (length s')))) -> ((seq_get (app s s') i) = (seq_get s' (i - (length s))))
+      forall (s :sequence A) (s' :sequence A) (i :integer), (((length s) <= i) /\ (i < ((length s) + (length s')))) -> ((seq_get (app s s') i) = (seq_get s' (i - (length s))))
     }.
 
     Class _multiplicity_sig `{ @_sequence_sig } := {
       multiplicity : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Z
+      integer
     }.
 
     Class _mult_empty_sig
@@ -416,13 +418,13 @@ Module Declarations.
     Class _belongs_sig `{ @_sequence_sig } := {
       belongs : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _mem_sig `{ @_sequence_sig } := {
       mem : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _mem_fun_def_sig
@@ -447,7 +449,7 @@ Module Declarations.
     Class _neg_belongs_sig `{ @_sequence_sig } := {
       neg_belongs : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _nmem_def_sig
@@ -461,9 +463,9 @@ Module Declarations.
     }.
 
     Class _Forall_sig `{ @_sequence_sig } := {
-      Forall : forall { A }, forall `{ Inhabited A }, (A -> Prop) ->
+      Forall : forall { A }, forall `{ Inhabited A }, (A -> prop) ->
       (sequence A) ->
-      Prop
+      prop
     }.
 
     Class _forall_def_sig
@@ -471,15 +473,15 @@ Module Declarations.
     `{ @_Forall_sig _ }
     `{ @_belongs_sig _ } := {
       forall_def : forall { A }, forall `{ Inhabited A }, forall
-      (p :A -> Prop)
+      (p :A -> prop)
       (s :sequence A),
       (Forall p s) <-> (forall (x :A), (belongs x s) -> (p x))
     }.
 
     Class _Exists_sig `{ @_sequence_sig } := {
-      Exists : forall { A }, forall `{ Inhabited A }, (A -> Prop) ->
+      Exists : forall { A }, forall `{ Inhabited A }, (A -> prop) ->
       (sequence A) ->
-      Prop
+      prop
     }.
 
     Class _exists_def_sig
@@ -487,7 +489,7 @@ Module Declarations.
     `{ @_Exists_sig _ }
     `{ @_belongs_sig _ } := {
       exists_def : forall { A }, forall `{ Inhabited A }, forall
-      (p :A -> Prop)
+      (p :A -> prop)
       (s :sequence A),
       (Exists p s) <-> (exists (x :A), (belongs x s) /\ (p x))
     }.
@@ -507,7 +509,7 @@ Module Declarations.
       map_elems : forall { B } { A }, forall
       `{ Inhabited B }
       `{ Inhabited A },
-      forall (i :Z) (f :B -> A) (s :sequence B), (in_range s i) -> ((seq_get (map f s) i) = (f (seq_get s i)))
+      forall (i :integer) (f :B -> A) (s :sequence B), (in_range s i) -> ((seq_get (map f s) i) = (f (seq_get s i)))
     }.
 
     Class _map_length_sig
@@ -521,7 +523,7 @@ Module Declarations.
     }.
 
     Class _filter_sig `{ @_sequence_sig } := {
-      filter : forall { A }, forall `{ Inhabited A }, (A -> Prop) ->
+      filter : forall { A }, forall `{ Inhabited A }, (A -> prop) ->
       (t A) ->
       t A
     }.
@@ -531,7 +533,7 @@ Module Declarations.
     `{ @_belongs_sig _ }
     `{ @_filter_sig _ } := {
       filter_elems : forall { A }, forall `{ Inhabited A }, forall
-      (f :A -> Prop)
+      (f :A -> prop)
       (s :sequence A)
       (x :A),
       (belongs x s) -> (f x) -> belongs x (filter f s)
@@ -562,7 +564,7 @@ Module Declarations.
 
     Class _get_sig `{ @_sequence_sig } := {
       get : forall { A }, forall `{ Inhabited A }, (t A) ->
-      Z ->
+      integer ->
       A
     }.
 
@@ -572,13 +574,13 @@ Module Declarations.
     `{ @_seq_get_sig _ } := {
       get_def : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i :Z),
+      (i :integer),
       (get s i) = (seq_get s i)
     }.
 
     Class _set_sig `{ @_sequence_sig } := {
       set : forall { A }, forall `{ Inhabited A }, (t A) ->
-      Z ->
+      integer ->
       A -> (t A)
     }.
 
@@ -589,7 +591,7 @@ Module Declarations.
     `{ @_set_sig _ } := {
       set_elem : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i :Z)
+      (i :integer)
       (x :A),
       (in_range s i) -> ((seq_get (set s i x) i) = x)
     }.
@@ -601,8 +603,8 @@ Module Declarations.
     `{ @_set_sig _ } := {
       set_elem_other : forall { A }, forall `{ Inhabited A }, forall
       (s :sequence A)
-      (i1 :Z)
-      (i2 :Z)
+      (i1 :integer)
+      (i2 :integer)
       (x :A),
       (i1 <> i2) ->
       (in_range s i1) ->
@@ -629,7 +631,7 @@ Module Declarations.
     `{ @_rev_sig _ }
     `{ @_length_sig _ } := {
       rev_elems : forall { A }, forall `{ Inhabited A }, forall
-      (i :Z)
+      (i :integer)
       (s :sequence A),
       (in_range s i) -> ((seq_get (rev s) i) = (seq_get s (((length s) - 1) - i)))
     }.
@@ -643,7 +645,7 @@ Module Declarations.
       (s1 :sequence A)
       (s2 :sequence A),
       ((length s1) = (length s2)) ->
-      (forall (i :Z), (in_range s1 i) -> ((seq_get s1 i) = (seq_get s2 i))) ->
+      (forall (i :integer), (in_range s1 i) -> ((seq_get s1 i) = (seq_get s2 i))) ->
       s1 = s2
     }.
 
@@ -714,7 +716,7 @@ Module Declarations.
     Class _permut_sig `{ @_sequence_sig } := {
       permut : forall { A }, forall `{ Inhabited A }, (t A) ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _permut_mem_sig
@@ -730,9 +732,9 @@ Module Declarations.
     Class _permut_sub_sig `{ @_sequence_sig } := {
       permut_sub : forall { A }, forall `{ Inhabited A }, (t A) ->
       (t A) ->
-      Z ->
-      Z ->
-      Prop
+      integer ->
+      integer ->
+      prop
     }.
 
     Class _permut_sub_def_sig
@@ -745,8 +747,8 @@ Module Declarations.
       permut_sub_def : forall { A }, forall `{ Inhabited A }, forall
       (s1 :sequence A)
       (s2 :sequence A)
-      (i :Z)
-      (j :Z),
+      (i :integer)
+      (j :integer),
       (permut (seq_sub s1 i j) (seq_sub s2 i j)) ->
       ((seq_sub_r s1 i) = (seq_sub_r s2 i)) ->
       ((seq_sub_l s1 j) = (seq_sub_l s2 j)) -> (permut_sub s1 s2 i j)
@@ -762,7 +764,7 @@ Module Declarations.
     Class _multiplicity_sig `{ @_bag_sig } := {
       multiplicity : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Z
+      integer
     }.
 
     Class _well_formed_sig
@@ -788,7 +790,7 @@ Module Declarations.
     }.
 
     Class _init_sig `{ @_bag_sig } := {
-      init : forall { A }, forall `{ Inhabited A }, (A -> Z) -> (t A)
+      init : forall { A }, forall `{ Inhabited A }, (A -> integer) -> (t A)
     }.
 
     Class _init_axiom_sig
@@ -797,7 +799,7 @@ Module Declarations.
     `{ @_multiplicity_sig _ }
     `{ @_init_sig _ } := {
       init_axiom : forall { A }, forall `{ Inhabited A }, forall
-      (f :A -> Z)
+      (f :A -> integer)
       (x :A),
       (max 0 (f x)) = (multiplicity x (init f))
     }.
@@ -805,13 +807,13 @@ Module Declarations.
     Class _belongs_sig `{ @_bag_sig } := {
       belongs : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _mem_sig `{ @_bag_sig } := {
       mem : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _mem_fun_def_sig
@@ -827,7 +829,7 @@ Module Declarations.
     Class _neg_belongs_sig `{ @_bag_sig } := {
       neg_belongs : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _nmem_def_sig
@@ -986,7 +988,7 @@ Module Declarations.
     Class _disjoint_sig `{ @_bag_sig } := {
       disjoint : forall { A }, forall `{ Inhabited A }, (t A) ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _disjoint_def_sig
@@ -1021,7 +1023,7 @@ Module Declarations.
     Class _subset_sig `{ @_bag_sig } := {
       subset : forall { A }, forall `{ Inhabited A }, (t A) ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _subset_def_sig
@@ -1035,7 +1037,7 @@ Module Declarations.
     }.
 
     Class _filter_sig `{ @_bag_sig } := {
-      filter : forall { A }, forall `{ Inhabited A }, (A -> Prop) ->
+      filter : forall { A }, forall `{ Inhabited A }, (A -> prop) ->
       (t A) ->
       t A
     }.
@@ -1047,7 +1049,7 @@ Module Declarations.
       filter_mem : forall { A }, forall `{ Inhabited A }, forall
       (b :bag A)
       (x :A)
-      (f :A -> Prop),
+      (f :A -> prop),
       (f x) -> ((multiplicity x (filter f b)) = (multiplicity x b))
     }.
 
@@ -1058,16 +1060,16 @@ Module Declarations.
       filter_mem_neg : forall { A }, forall `{ Inhabited A }, forall
       (b :bag A)
       (x :A)
-      (f :A -> Prop),
+      (f :A -> prop),
       (not (f x)) -> ((multiplicity x (filter f b)) = 0)
     }.
 
     Class _cardinal_sig `{ @_bag_sig } := {
-      cardinal : forall { A }, forall `{ Inhabited A }, (t A) -> Z
+      cardinal : forall { A }, forall `{ Inhabited A }, (t A) -> integer
     }.
 
     Class _finite_sig `{ @_bag_sig } := {
-      finite : forall { A }, forall `{ Inhabited A }, (t A) -> Prop
+      finite : forall { A }, forall `{ Inhabited A }, (t A) -> prop
     }.
 
     Class _finite_def_sig
@@ -1135,7 +1137,7 @@ Module Declarations.
     `{ @_cardinal_sig _ }
     `{ @_filter_sig _ } := {
       card_map : forall { A }, forall `{ Inhabited A }, forall
-      (f :A -> Prop)
+      (f :A -> prop)
       (b :bag A),
       (finite b) -> ((cardinal (filter f b)) <= (cardinal b))
     }.
@@ -1169,19 +1171,19 @@ Module Declarations.
     Class _belongs_sig `{ @_set_sig } := {
       belongs : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _neg_belongs_sig `{ @_set_sig } := {
       neg_belongs : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _mem_sig `{ @_set_sig } := {
       mem : forall { A }, forall `{ Inhabited A }, A ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _mem_fun_def_sig
@@ -1358,7 +1360,7 @@ Module Declarations.
     Class _disjoint_sig `{ @_set_sig } := {
       disjoint : forall { A }, forall `{ Inhabited A }, (t A) ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _disjoint_def_sig
@@ -1405,7 +1407,7 @@ Module Declarations.
     Class _subset_sig `{ @_set_sig } := {
       subset : forall { A }, forall `{ Inhabited A }, (t A) ->
       (t A) ->
-      Prop
+      prop
     }.
 
     Class _subset_def_sig
@@ -1438,7 +1440,7 @@ Module Declarations.
     }.
 
     Class _partition_sig `{ @_set_sig } := {
-      partition : forall { A }, forall `{ Inhabited A }, (A -> Prop) ->
+      partition : forall { A }, forall `{ Inhabited A }, (A -> prop) ->
       (t A) ->
       Corelib.Init.Datatypes.prod (t A) (t A)
     }.
@@ -1450,7 +1452,7 @@ Module Declarations.
       partition_l_mem : forall { A }, forall
       `{ Inhabited A },
       forall
-      (f :A -> Prop)
+      (f :A -> prop)
       (s :set A)
       (x :A)
       (p1 :set A)
@@ -1467,7 +1469,7 @@ Module Declarations.
       partition_r_mem : forall { A }, forall
       `{ Inhabited A },
       forall
-      (f :A -> Prop)
+      (f :A -> prop)
       (s :set A)
       (x :A)
       (p1 :set A)
@@ -1478,11 +1480,11 @@ Module Declarations.
     }.
 
     Class _cardinal_sig `{ @_set_sig } := {
-      cardinal : forall { A }, forall `{ Inhabited A }, (t A) -> Z
+      cardinal : forall { A }, forall `{ Inhabited A }, (t A) -> integer
     }.
 
     Class _finite_sig `{ @_set_sig } := {
-      finite : forall { A }, forall `{ Inhabited A }, (t A) -> Prop
+      finite : forall { A }, forall `{ Inhabited A }, (t A) -> prop
     }.
 
     Class _finite_def_sig
@@ -1679,418 +1681,418 @@ End Declarations.
 
 Module Type Obligations.
 
-Import Declarations.
-
-Global Declare Instance _set_inst :_set_sig.
-
-Global Declare Instance _sequence_inst :_sequence_sig.
-
-Global Declare Instance _bag_inst :_bag_sig.
-
-Global Declare Instance _option_inst :_option_sig.
-
-Global Declare Instance _Some_inst :_Some_sig.
-
-Global Declare Instance _None_inst :_None_sig.
-
-Global Declare Instance _succ_inst :_succ_sig.
-
-Global Declare Instance _pred_inst :_pred_sig.
-
-Global Declare Instance __mod_inst :__mod_sig.
-
-Global Declare Instance _pow_inst :_pow_sig.
-
-Global Declare Instance _abs_inst :_abs_sig.
-
-Global Declare Instance _min_inst :_min_sig.
-
-Global Declare Instance _max_inst :_max_sig.
-
-Global Declare Instance _app_inst :_app_sig.
-
-Global Declare Instance _seq_get_inst :_seq_get_sig.
-
-Global Declare Instance _seq_sub_inst :_seq_sub_sig.
-
-Global Declare Instance _seq_sub_l_inst :_seq_sub_l_sig.
-
-Global Declare Instance _seq_sub_r_inst :_seq_sub_r_sig.
-
-Global Declare Instance _monoid_inst :_monoid_sig.
-
-Global Declare Instance _monoid_def_inst :_monoid_def_sig.
-
-Global Declare Instance _comm_monoid_inst :_comm_monoid_sig.
-
-Global Declare Instance _comm_monoid_def_inst :_comm_monoid_def_sig.
-
-Module Sequence.
-
-  Import Declarations.Sequence.
-
-  Global Declare Instance _length_inst :_length_sig.
-
-  Global Declare Instance _in_range_inst :_in_range_sig.
-
-  Global Declare Instance _in_range_def_inst :_in_range_def_sig.
-
-  Global Declare Instance _length_nonneg_inst :_length_nonneg_sig.
-
-  Global Declare Instance _subseq_l_inst :_subseq_l_sig.
-
-  Global Declare Instance _subseq_r_inst :_subseq_r_sig.
-
-  Global Declare Instance _subseq_inst :_subseq_sig.
-
-  Global Declare Instance _subseq_len_inst :_subseq_len_sig.
-
-  Global Declare Instance _empty_inst :_empty_sig.
-
-  Global Declare Instance _empty_length_inst :_empty_length_sig.
-
-  Global Declare Instance _init_inst :_init_sig.
-
-  Global Declare Instance _init_length_inst :_init_length_sig.
-
-  Global Declare Instance _init_elems_inst :_init_elems_sig.
-
-  Global Declare Instance _singleton_inst :_singleton_sig.
-
-  Global Declare Instance _singleton_def_inst :_singleton_def_sig.
-
-  Global Declare Instance _cons_inst :_cons_sig.
-
-  Global Declare Instance _cons_def_inst :_cons_def_sig.
-
-  Global Declare Instance _snoc_inst :_snoc_sig.
-
-  Global Declare Instance _snoc_def_inst :_snoc_def_sig.
-
-  Global Declare Instance _hd_inst :_hd_sig.
-
-  Global Declare Instance _hd_def_inst :_hd_def_sig.
-
-  Global Declare Instance _tl_inst :_tl_sig.
-
-  Global Declare Instance _tl_def_inst :_tl_def_sig.
-
-  Global Declare Instance _append_inst :_append_sig.
-
-  Global Declare Instance _append_def_inst :_append_def_sig.
-
-  Global Declare Instance _append_length_inst :_append_length_sig.
-
-  Global Declare Instance _append_elems_left_inst :_append_elems_left_sig.
-
-  Global Declare Instance _append_elems_right_inst :_append_elems_right_sig.
-
-  Global Declare Instance _multiplicity_inst :_multiplicity_sig.
-
-  Global Declare Instance _mult_empty_inst :_mult_empty_sig.
-
-  Global Declare Instance _mult_cons_inst :_mult_cons_sig.
-
-  Global Declare Instance _mult_cons_neutral_inst :_mult_cons_neutral_sig.
-
-  Global Declare Instance _mult_length_inst :_mult_length_sig.
-
-  Global Declare Instance _belongs_inst :_belongs_sig.
-
-  Global Declare Instance _mem_inst :_mem_sig.
-
-  Global Declare Instance _mem_fun_def_inst :_mem_fun_def_sig.
-
-  Global Declare Instance _mem_def_inst :_mem_def_sig.
-
-  Global Declare Instance _neg_belongs_inst :_neg_belongs_sig.
-
-  Global Declare Instance _nmem_def_inst :_nmem_def_sig.
-
-  Global Declare Instance _Forall_inst :_Forall_sig.
-
-  Global Declare Instance _forall_def_inst :_forall_def_sig.
-
-  Global Declare Instance _Exists_inst :_Exists_sig.
-
-  Global Declare Instance _exists_def_inst :_exists_def_sig.
-
-  Global Declare Instance _map_inst :_map_sig.
-
-  Global Declare Instance _map_elems_inst :_map_elems_sig.
-
-  Global Declare Instance _map_length_inst :_map_length_sig.
-
-  Global Declare Instance _filter_inst :_filter_sig.
-
-  Global Declare Instance _filter_elems_inst :_filter_elems_sig.
-
-  Global Declare Instance _filter_map_inst :_filter_map_sig.
-
-  Global Declare Instance _filter_map_elems_inst :_filter_map_elems_sig.
-
-  Global Declare Instance _get_inst :_get_sig.
-
-  Global Declare Instance _get_def_inst :_get_def_sig.
+  Import Declarations.
 
   Global Declare Instance _set_inst :_set_sig.
 
-  Global Declare Instance _set_elem_inst :_set_elem_sig.
+  Global Declare Instance _sequence_inst :_sequence_sig.
 
-  Global Declare Instance _set_elem_other_inst :_set_elem_other_sig.
+  Global Declare Instance _bag_inst :_bag_sig.
 
-  Global Declare Instance _rev_inst :_rev_sig.
+  Global Declare Instance _option_inst :_option_sig.
 
-  Global Declare Instance _rev_length_inst :_rev_length_sig.
+  Global Declare Instance _Some_inst :_Some_sig.
 
-  Global Declare Instance _rev_elems_inst :_rev_elems_sig.
+  Global Declare Instance _None_inst :_None_sig.
 
-  Global Declare Instance _extensionality_inst :_extensionality_sig.
+  Global Declare Instance _succ_inst :_succ_sig.
 
-  Global Declare Instance _fold_left_inst :_fold_left_sig.
+  Global Declare Instance _pred_inst :_pred_sig.
 
-  Global Declare Instance _fold_left_empty_inst :_fold_left_empty_sig.
+  Global Declare Instance __mod_inst :__mod_sig.
 
-  Global Declare Instance _fold_left_cons_inst :_fold_left_cons_sig.
+  Global Declare Instance _pow_inst :_pow_sig.
 
-  Global Declare Instance _fold_right_inst :_fold_right_sig.
+  Global Declare Instance _abs_inst :_abs_sig.
 
-  Global Declare Instance _fold_right_empty_inst :_fold_right_empty_sig.
+  Global Declare Instance _min_inst :_min_sig.
 
-  Global Declare Instance _fold_right_cons_inst :_fold_right_cons_sig.
+  Global Declare Instance _max_inst :_max_sig.
 
-  Global Declare Instance _permut_inst :_permut_sig.
+  Global Declare Instance _app_inst :_app_sig.
 
-  Global Declare Instance _permut_mem_inst :_permut_mem_sig.
+  Global Declare Instance _seq_get_inst :_seq_get_sig.
 
-  Global Declare Instance _permut_sub_inst :_permut_sub_sig.
+  Global Declare Instance _seq_sub_inst :_seq_sub_sig.
 
-  Global Declare Instance _permut_sub_def_inst :_permut_sub_def_sig.
+  Global Declare Instance _seq_sub_l_inst :_seq_sub_l_sig.
 
-End Sequence.
+  Global Declare Instance _seq_sub_r_inst :_seq_sub_r_sig.
 
-Module Bag.
+  Global Declare Instance _monoid_inst :_monoid_sig.
 
-  Import Declarations.Bag.
+  Global Declare Instance _monoid_def_inst :_monoid_def_sig.
 
-  Global Declare Instance _multiplicity_inst :_multiplicity_sig.
+  Global Declare Instance _comm_monoid_inst :_comm_monoid_sig.
 
-  Global Declare Instance _well_formed_inst :_well_formed_sig.
+  Global Declare Instance _comm_monoid_def_inst :_comm_monoid_def_sig.
 
-  Global Declare Instance _empty_inst :_empty_sig.
+  Module Sequence.
 
-  Global Declare Instance _empty_mult_inst :_empty_mult_sig.
+    Import Declarations.Sequence.
 
-  Global Declare Instance _init_inst :_init_sig.
+    Global Declare Instance _length_inst :_length_sig.
 
-  Global Declare Instance _init_axiom_inst :_init_axiom_sig.
+    Global Declare Instance _in_range_inst :_in_range_sig.
 
-  Global Declare Instance _belongs_inst :_belongs_sig.
+    Global Declare Instance _in_range_def_inst :_in_range_def_sig.
 
-  Global Declare Instance _mem_inst :_mem_sig.
+    Global Declare Instance _length_nonneg_inst :_length_nonneg_sig.
 
-  Global Declare Instance _mem_fun_def_inst :_mem_fun_def_sig.
+    Global Declare Instance _subseq_l_inst :_subseq_l_sig.
 
-  Global Declare Instance _neg_belongs_inst :_neg_belongs_sig.
+    Global Declare Instance _subseq_r_inst :_subseq_r_sig.
 
-  Global Declare Instance _nmem_def_inst :_nmem_def_sig.
+    Global Declare Instance _subseq_inst :_subseq_sig.
 
-  Global Declare Instance _mem_def_inst :_mem_def_sig.
+    Global Declare Instance _subseq_len_inst :_subseq_len_sig.
 
-  Global Declare Instance _add_inst :_add_sig.
+    Global Declare Instance _empty_inst :_empty_sig.
 
-  Global Declare Instance _add_mult_x_inst :_add_mult_x_sig.
+    Global Declare Instance _empty_length_inst :_empty_length_sig.
 
-  Global Declare Instance _add_mult_neg_x_inst :_add_mult_neg_x_sig.
+    Global Declare Instance _init_inst :_init_sig.
 
-  Global Declare Instance _singleton_set_inst :_singleton_set_sig.
+    Global Declare Instance _init_length_inst :_init_length_sig.
 
-  Global Declare Instance _singleton_inst :_singleton_sig.
+    Global Declare Instance _init_elems_inst :_init_elems_sig.
 
-  Global Declare Instance _singleton_fun_def_inst :_singleton_fun_def_sig.
+    Global Declare Instance _singleton_inst :_singleton_sig.
 
-  Global Declare Instance _singleton_def_inst :_singleton_def_sig.
+    Global Declare Instance _singleton_def_inst :_singleton_def_sig.
 
-  Global Declare Instance _remove_inst :_remove_sig.
+    Global Declare Instance _cons_inst :_cons_sig.
 
-  Global Declare Instance _remove_mult_x_inst :_remove_mult_x_sig.
+    Global Declare Instance _cons_def_inst :_cons_def_sig.
 
-  Global Declare Instance _remove_mult_neg_x_inst :_remove_mult_neg_x_sig.
+    Global Declare Instance _snoc_inst :_snoc_sig.
 
-  Global Declare Instance _union_inst :_union_sig.
+    Global Declare Instance _snoc_def_inst :_snoc_def_sig.
 
-  Global Declare Instance _union_all_inst :_union_all_sig.
+    Global Declare Instance _hd_inst :_hd_sig.
 
-  Global Declare Instance _sum_inst :_sum_sig.
+    Global Declare Instance _hd_def_inst :_hd_def_sig.
 
-  Global Declare Instance _sum_all_inst :_sum_all_sig.
+    Global Declare Instance _tl_inst :_tl_sig.
 
-  Global Declare Instance _inter_inst :_inter_sig.
+    Global Declare Instance _tl_def_inst :_tl_def_sig.
 
-  Global Declare Instance _inter_all_inst :_inter_all_sig.
+    Global Declare Instance _append_inst :_append_sig.
 
-  Global Declare Instance _disjoint_inst :_disjoint_sig.
+    Global Declare Instance _append_def_inst :_append_def_sig.
 
-  Global Declare Instance _disjoint_def_inst :_disjoint_def_sig.
+    Global Declare Instance _append_length_inst :_append_length_sig.
 
-  Global Declare Instance _diff_inst :_diff_sig.
+    Global Declare Instance _append_elems_left_inst :_append_elems_left_sig.
 
-  Global Declare Instance _diff_all_inst :_diff_all_sig.
+    Global Declare Instance _append_elems_right_inst :_append_elems_right_sig.
 
-  Global Declare Instance _subset_inst :_subset_sig.
+    Global Declare Instance _multiplicity_inst :_multiplicity_sig.
 
-  Global Declare Instance _subset_def_inst :_subset_def_sig.
+    Global Declare Instance _mult_empty_inst :_mult_empty_sig.
 
-  Global Declare Instance _filter_inst :_filter_sig.
+    Global Declare Instance _mult_cons_inst :_mult_cons_sig.
 
-  Global Declare Instance _filter_mem_inst :_filter_mem_sig.
+    Global Declare Instance _mult_cons_neutral_inst :_mult_cons_neutral_sig.
 
-  Global Declare Instance _filter_mem_neg_inst :_filter_mem_neg_sig.
+    Global Declare Instance _mult_length_inst :_mult_length_sig.
 
-  Global Declare Instance _cardinal_inst :_cardinal_sig.
+    Global Declare Instance _belongs_inst :_belongs_sig.
 
-  Global Declare Instance _finite_inst :_finite_sig.
+    Global Declare Instance _mem_inst :_mem_sig.
 
-  Global Declare Instance _finite_def_inst :_finite_def_sig.
+    Global Declare Instance _mem_fun_def_inst :_mem_fun_def_sig.
 
-  Global Declare Instance _card_nonneg_inst :_card_nonneg_sig.
+    Global Declare Instance _mem_def_inst :_mem_def_sig.
 
-  Global Declare Instance _card_empty_inst :_card_empty_sig.
+    Global Declare Instance _neg_belongs_inst :_neg_belongs_sig.
 
-  Global Declare Instance _card_singleton_inst :_card_singleton_sig.
+    Global Declare Instance _nmem_def_inst :_nmem_def_sig.
 
-  Global Declare Instance _card_union_inst :_card_union_sig.
+    Global Declare Instance _Forall_inst :_Forall_sig.
 
-  Global Declare Instance _card_add_inst :_card_add_sig.
+    Global Declare Instance _forall_def_inst :_forall_def_sig.
 
-  Global Declare Instance _card_map_inst :_card_map_sig.
+    Global Declare Instance _Exists_inst :_Exists_sig.
 
-  Global Declare Instance _of_seq_inst :_of_seq_sig.
+    Global Declare Instance _exists_def_inst :_exists_def_sig.
 
-  Global Declare Instance _of_seq_multiplicity_inst :_of_seq_multiplicity_sig.
+    Global Declare Instance _map_inst :_map_sig.
 
-End Bag.
+    Global Declare Instance _map_elems_inst :_map_elems_sig.
 
-Module _Set.
+    Global Declare Instance _map_length_inst :_map_length_sig.
 
-  Import Declarations._Set.
+    Global Declare Instance _filter_inst :_filter_sig.
 
-  Global Declare Instance _empty_inst :_empty_sig.
+    Global Declare Instance _filter_elems_inst :_filter_elems_sig.
 
-  Global Declare Instance _belongs_inst :_belongs_sig.
+    Global Declare Instance _filter_map_inst :_filter_map_sig.
 
-  Global Declare Instance _neg_belongs_inst :_neg_belongs_sig.
+    Global Declare Instance _filter_map_elems_inst :_filter_map_elems_sig.
 
-  Global Declare Instance _mem_inst :_mem_sig.
+    Global Declare Instance _get_inst :_get_sig.
 
-  Global Declare Instance _mem_fun_def_inst :_mem_fun_def_sig.
+    Global Declare Instance _get_def_inst :_get_def_sig.
 
-  Global Declare Instance _nmem_def_inst :_nmem_def_sig.
+    Global Declare Instance _set_inst :_set_sig.
 
-  Global Declare Instance _empty_mem_inst :_empty_mem_sig.
+    Global Declare Instance _set_elem_inst :_set_elem_sig.
 
-  Global Declare Instance _add_inst :_add_sig.
+    Global Declare Instance _set_elem_other_inst :_set_elem_other_sig.
 
-  Global Declare Instance _add_mem_inst :_add_mem_sig.
+    Global Declare Instance _rev_inst :_rev_sig.
 
-  Global Declare Instance _add_mem_neq_inst :_add_mem_neq_sig.
+    Global Declare Instance _rev_length_inst :_rev_length_sig.
 
-  Global Declare Instance _singleton_set_inst :_singleton_set_sig.
+    Global Declare Instance _rev_elems_inst :_rev_elems_sig.
 
-  Global Declare Instance _singleton_inst :_singleton_sig.
+    Global Declare Instance _extensionality_inst :_extensionality_sig.
 
-  Global Declare Instance _singleton_fun_def_inst :_singleton_fun_def_sig.
+    Global Declare Instance _fold_left_inst :_fold_left_sig.
 
-  Global Declare Instance _singleton_def_inst :_singleton_def_sig.
+    Global Declare Instance _fold_left_empty_inst :_fold_left_empty_sig.
 
-  Global Declare Instance _remove_inst :_remove_sig.
+    Global Declare Instance _fold_left_cons_inst :_fold_left_cons_sig.
 
-  Global Declare Instance _remove_mem_inst :_remove_mem_sig.
+    Global Declare Instance _fold_right_inst :_fold_right_sig.
 
-  Global Declare Instance _remove_mem_neq_inst :_remove_mem_neq_sig.
+    Global Declare Instance _fold_right_empty_inst :_fold_right_empty_sig.
 
-  Global Declare Instance _union_inst :_union_sig.
+    Global Declare Instance _fold_right_cons_inst :_fold_right_cons_sig.
 
-  Global Declare Instance _union_mem_inst :_union_mem_sig.
+    Global Declare Instance _permut_inst :_permut_sig.
 
-  Global Declare Instance _union_mem_neg_inst :_union_mem_neg_sig.
+    Global Declare Instance _permut_mem_inst :_permut_mem_sig.
 
-  Global Declare Instance _inter_inst :_inter_sig.
+    Global Declare Instance _permut_sub_inst :_permut_sub_sig.
 
-  Global Declare Instance _inter_mem_inst :_inter_mem_sig.
+    Global Declare Instance _permut_sub_def_inst :_permut_sub_def_sig.
 
-  Global Declare Instance _inter_mem_neq_inst :_inter_mem_neq_sig.
+  End Sequence.
 
-  Global Declare Instance _disjoint_inst :_disjoint_sig.
+  Module Bag.
 
-  Global Declare Instance _disjoint_def_inst :_disjoint_def_sig.
+    Import Declarations.Bag.
 
-  Global Declare Instance _diff_inst :_diff_sig.
+    Global Declare Instance _multiplicity_inst :_multiplicity_sig.
 
-  Global Declare Instance _diff_mem_inst :_diff_mem_sig.
+    Global Declare Instance _well_formed_inst :_well_formed_sig.
 
-  Global Declare Instance _diff_mem_fst_inst :_diff_mem_fst_sig.
+    Global Declare Instance _empty_inst :_empty_sig.
 
-  Global Declare Instance _subset_inst :_subset_sig.
+    Global Declare Instance _empty_mult_inst :_empty_mult_sig.
 
-  Global Declare Instance _subset_def_inst :_subset_def_sig.
+    Global Declare Instance _init_inst :_init_sig.
 
-  Global Declare Instance _map_inst :_map_sig.
+    Global Declare Instance _init_axiom_inst :_init_axiom_sig.
 
-  Global Declare Instance _set_map_inst :_set_map_sig.
+    Global Declare Instance _belongs_inst :_belongs_sig.
 
-  Global Declare Instance _partition_inst :_partition_sig.
+    Global Declare Instance _mem_inst :_mem_sig.
 
-  Global Declare Instance _partition_l_mem_inst :_partition_l_mem_sig.
+    Global Declare Instance _mem_fun_def_inst :_mem_fun_def_sig.
 
-  Global Declare Instance _partition_r_mem_inst :_partition_r_mem_sig.
+    Global Declare Instance _neg_belongs_inst :_neg_belongs_sig.
 
-  Global Declare Instance _cardinal_inst :_cardinal_sig.
+    Global Declare Instance _nmem_def_inst :_nmem_def_sig.
 
-  Global Declare Instance _finite_inst :_finite_sig.
+    Global Declare Instance _mem_def_inst :_mem_def_sig.
 
-  Global Declare Instance _finite_def_inst :_finite_def_sig.
+    Global Declare Instance _add_inst :_add_sig.
 
-  Global Declare Instance _cardinal_nonneg_inst :_cardinal_nonneg_sig.
+    Global Declare Instance _add_mult_x_inst :_add_mult_x_sig.
 
-  Global Declare Instance _cardinal_empty_inst :_cardinal_empty_sig.
+    Global Declare Instance _add_mult_neg_x_inst :_add_mult_neg_x_sig.
 
-  Global Declare Instance _cardinal_remove_mem_inst :_cardinal_remove_mem_sig.
+    Global Declare Instance _singleton_set_inst :_singleton_set_sig.
 
-  Global Declare Instance _cardinal_remove_not_mem_inst :_cardinal_remove_not_mem_sig.
+    Global Declare Instance _singleton_inst :_singleton_sig.
 
-  Global Declare Instance _cardinal_add_inst :_cardinal_add_sig.
+    Global Declare Instance _singleton_fun_def_inst :_singleton_fun_def_sig.
 
-  Global Declare Instance _cardinal_add_mem_inst :_cardinal_add_mem_sig.
+    Global Declare Instance _singleton_def_inst :_singleton_def_sig.
 
-  Global Declare Instance _of_seq_inst :_of_seq_sig.
+    Global Declare Instance _remove_inst :_remove_sig.
 
-  Global Declare Instance _of_seq_mem_inst :_of_seq_mem_sig.
+    Global Declare Instance _remove_mult_x_inst :_remove_mult_x_sig.
 
-  Global Declare Instance _to_seq_inst :_to_seq_sig.
+    Global Declare Instance _remove_mult_neg_x_inst :_remove_mult_neg_x_sig.
 
-  Global Declare Instance _to_seq_mem_inst :_to_seq_mem_sig.
+    Global Declare Instance _union_inst :_union_sig.
 
-  Global Declare Instance _fold_inst :_fold_sig.
+    Global Declare Instance _union_all_inst :_union_all_sig.
 
-  Global Declare Instance _fold_def_inst :_fold_def_sig.
+    Global Declare Instance _sum_inst :_sum_sig.
 
-End _Set.
+    Global Declare Instance _sum_all_inst :_sum_all_sig.
 
-Global Declare Instance _map_set_inst :_map_set_sig.
+    Global Declare Instance _inter_inst :_inter_sig.
 
-Global Declare Instance _map_set_def_inst :_map_set_def_sig.
+    Global Declare Instance _inter_all_inst :_inter_all_sig.
 
-Global Declare Instance _map_set_def_neq_inst :_map_set_def_neq_sig.
+    Global Declare Instance _disjoint_inst :_disjoint_sig.
 
-Module Map.
+    Global Declare Instance _disjoint_def_inst :_disjoint_def_sig.
 
-  Import Declarations.Map.
+    Global Declare Instance _diff_inst :_diff_sig.
 
-  Global Declare Instance _domain_inst :_domain_sig.
+    Global Declare Instance _diff_all_inst :_diff_all_sig.
 
-  Global Declare Instance _domain_mem_inst :_domain_mem_sig.
+    Global Declare Instance _subset_inst :_subset_sig.
 
-End Map.
+    Global Declare Instance _subset_def_inst :_subset_def_sig.
+
+    Global Declare Instance _filter_inst :_filter_sig.
+
+    Global Declare Instance _filter_mem_inst :_filter_mem_sig.
+
+    Global Declare Instance _filter_mem_neg_inst :_filter_mem_neg_sig.
+
+    Global Declare Instance _cardinal_inst :_cardinal_sig.
+
+    Global Declare Instance _finite_inst :_finite_sig.
+
+    Global Declare Instance _finite_def_inst :_finite_def_sig.
+
+    Global Declare Instance _card_nonneg_inst :_card_nonneg_sig.
+
+    Global Declare Instance _card_empty_inst :_card_empty_sig.
+
+    Global Declare Instance _card_singleton_inst :_card_singleton_sig.
+
+    Global Declare Instance _card_union_inst :_card_union_sig.
+
+    Global Declare Instance _card_add_inst :_card_add_sig.
+
+    Global Declare Instance _card_map_inst :_card_map_sig.
+
+    Global Declare Instance _of_seq_inst :_of_seq_sig.
+
+    Global Declare Instance _of_seq_multiplicity_inst :_of_seq_multiplicity_sig.
+
+  End Bag.
+
+  Module _Set.
+
+    Import Declarations._Set.
+
+    Global Declare Instance _empty_inst :_empty_sig.
+
+    Global Declare Instance _belongs_inst :_belongs_sig.
+
+    Global Declare Instance _neg_belongs_inst :_neg_belongs_sig.
+
+    Global Declare Instance _mem_inst :_mem_sig.
+
+    Global Declare Instance _mem_fun_def_inst :_mem_fun_def_sig.
+
+    Global Declare Instance _nmem_def_inst :_nmem_def_sig.
+
+    Global Declare Instance _empty_mem_inst :_empty_mem_sig.
+
+    Global Declare Instance _add_inst :_add_sig.
+
+    Global Declare Instance _add_mem_inst :_add_mem_sig.
+
+    Global Declare Instance _add_mem_neq_inst :_add_mem_neq_sig.
+
+    Global Declare Instance _singleton_set_inst :_singleton_set_sig.
+
+    Global Declare Instance _singleton_inst :_singleton_sig.
+
+    Global Declare Instance _singleton_fun_def_inst :_singleton_fun_def_sig.
+
+    Global Declare Instance _singleton_def_inst :_singleton_def_sig.
+
+    Global Declare Instance _remove_inst :_remove_sig.
+
+    Global Declare Instance _remove_mem_inst :_remove_mem_sig.
+
+    Global Declare Instance _remove_mem_neq_inst :_remove_mem_neq_sig.
+
+    Global Declare Instance _union_inst :_union_sig.
+
+    Global Declare Instance _union_mem_inst :_union_mem_sig.
+
+    Global Declare Instance _union_mem_neg_inst :_union_mem_neg_sig.
+
+    Global Declare Instance _inter_inst :_inter_sig.
+
+    Global Declare Instance _inter_mem_inst :_inter_mem_sig.
+
+    Global Declare Instance _inter_mem_neq_inst :_inter_mem_neq_sig.
+
+    Global Declare Instance _disjoint_inst :_disjoint_sig.
+
+    Global Declare Instance _disjoint_def_inst :_disjoint_def_sig.
+
+    Global Declare Instance _diff_inst :_diff_sig.
+
+    Global Declare Instance _diff_mem_inst :_diff_mem_sig.
+
+    Global Declare Instance _diff_mem_fst_inst :_diff_mem_fst_sig.
+
+    Global Declare Instance _subset_inst :_subset_sig.
+
+    Global Declare Instance _subset_def_inst :_subset_def_sig.
+
+    Global Declare Instance _map_inst :_map_sig.
+
+    Global Declare Instance _set_map_inst :_set_map_sig.
+
+    Global Declare Instance _partition_inst :_partition_sig.
+
+    Global Declare Instance _partition_l_mem_inst :_partition_l_mem_sig.
+
+    Global Declare Instance _partition_r_mem_inst :_partition_r_mem_sig.
+
+    Global Declare Instance _cardinal_inst :_cardinal_sig.
+
+    Global Declare Instance _finite_inst :_finite_sig.
+
+    Global Declare Instance _finite_def_inst :_finite_def_sig.
+
+    Global Declare Instance _cardinal_nonneg_inst :_cardinal_nonneg_sig.
+
+    Global Declare Instance _cardinal_empty_inst :_cardinal_empty_sig.
+
+    Global Declare Instance _cardinal_remove_mem_inst :_cardinal_remove_mem_sig.
+
+    Global Declare Instance _cardinal_remove_not_mem_inst :_cardinal_remove_not_mem_sig.
+
+    Global Declare Instance _cardinal_add_inst :_cardinal_add_sig.
+
+    Global Declare Instance _cardinal_add_mem_inst :_cardinal_add_mem_sig.
+
+    Global Declare Instance _of_seq_inst :_of_seq_sig.
+
+    Global Declare Instance _of_seq_mem_inst :_of_seq_mem_sig.
+
+    Global Declare Instance _to_seq_inst :_to_seq_sig.
+
+    Global Declare Instance _to_seq_mem_inst :_to_seq_mem_sig.
+
+    Global Declare Instance _fold_inst :_fold_sig.
+
+    Global Declare Instance _fold_def_inst :_fold_def_sig.
+
+  End _Set.
+
+  Global Declare Instance _map_set_inst :_map_set_sig.
+
+  Global Declare Instance _map_set_def_inst :_map_set_def_sig.
+
+  Global Declare Instance _map_set_def_neq_inst :_map_set_def_neq_sig.
+
+  Module Map.
+
+    Import Declarations.Map.
+
+    Global Declare Instance _domain_inst :_domain_sig.
+
+    Global Declare Instance _domain_mem_inst :_domain_mem_sig.
+
+  End Map.
 
 End Obligations.
