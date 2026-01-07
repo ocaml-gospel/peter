@@ -4,12 +4,13 @@ open Format
 
 let fname = ref None
 let version = "0.1~dev"
-let stdlib = ref false
+let file_special = ref Peter.Normal
 let dir = ref ""
 
 type backend = CFML | Iris
 
 let backend = ref CFML
+let compile = ref true
 
 let spec =
   [
@@ -23,11 +24,21 @@ let spec =
       Arg.Unit (fun () -> backend := Iris),
       " use Iris as a verification backend" );
     ( "--dir",
-      Arg.String (fun s -> dir := s),
+      Arg.Set_string dir,
       " the directory in which the generated file will be output" );
-    ( "--stdlib",
-      Arg.Unit (fun () -> stdlib := true),
-      "Flag to use when translating the Gospel standard library." );
+    ( "--special",
+      Arg.Symbol
+        ( [ "stdlib"; "primitives" ],
+          fun s ->
+            compile := false;
+            match s with
+            | "stdlib" -> file_special := Stdlib
+            | "primitives" -> file_special := Primitives
+            | _ -> assert false ),
+      "For developers only. This flag has two settings \"stdlib\" and \
+       \"primitives\" which are used when translating the Gospel standard \
+       library or the OCaml primitives specification." );
+    ("--no-compile", Arg.Unit (fun () -> compile := false), "");
   ]
 
 module Iris = Peter.Make (Peter.Sep_to_iris)
@@ -77,23 +88,25 @@ let mk_base base_dir mod_name =
   ()
 
 let () =
+  let map = fun x -> x ^ "''" in
   let file_sep =
-    match Gospel.sep ~verbose:false [ fname ] with
+    match Gospel.sep ~verbose:false ~map [ fname ] with
     | [ x ] -> x
     | _ -> assert false
   in
 
   let file_cfml =
     match !backend with
-    | Iris -> Iris.sep_defs ~stdlib:!stdlib file_sep
-    | CFML -> CFML.sep_defs ~stdlib:!stdlib file_sep
+    | Iris -> Iris.sep_defs ~special:!file_special file_sep
+    | CFML -> CFML.sep_defs ~special:!file_special file_sep
   in
 
   dir := if not (String.ends_with ~suffix:"/" !dir) then !dir ^ "/" else !dir;
-  let base_dir = !dir ^ file_sep.fmodule ^ "/" in
-  let mk_project = not (Sys.file_exists base_dir) in
+  let base_dir = if !compile then !dir ^ file_sep.fmodule ^ "/" else "" in
+  let mk_project = !compile && not (Sys.file_exists base_dir) in
   if mk_project then Sys.mkdir base_dir 0o755;
-  let oc = open_out (base_dir ^ file_sep.fmodule ^ interface_suffix) in
+  let fname = String.uncapitalize_ascii file_sep.fmodule in
+  let oc = open_out (base_dir ^ fname ^ interface_suffix) in
   let tops =
     match !backend with
     | Iris -> Print_rocq.Iris.print
@@ -102,6 +115,9 @@ let () =
   let file = tops file_cfml in
   Out_channel.output_string oc file;
   close_out oc;
-  if mk_project then mk_base base_dir file_sep.fmodule;
-  let _ = Sys.command (Printf.sprintf "cd %s && make 1> /dev/null" base_dir) in
-  ()
+  if mk_project then mk_base base_dir fname;
+  if !compile then
+    let _ =
+      Sys.command (Printf.sprintf "cd %s && make 1> /dev/null" base_dir)
+    in
+    ()

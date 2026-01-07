@@ -102,6 +102,7 @@ type rocqtop =
   | Rocqtop_record of record
   | Rocqtop_import of vars
   | Rocqtop_class of tclass
+  | Rocqtop_require of vars
   | Rocqtop_require_import of vars
   | Rocqtop_module of var * typed_var list * rocqtop list
   | Rocqtop_module_type of var * typed_var list * rocqtop list
@@ -266,8 +267,7 @@ let rocq_preds cs = rocq_impls cs typ_prop
 
 (** Product type [(c1 * c2)%type] *)
 
-let rocq_prod c1 c2 =
-  rocq_apps (Rocq_var "Corelib.Init.Datatypes.prod") [ c1; c2 ]
+let rocq_prod c1 c2 = rocq_infix c1 "*" c2
 
 (** Product type [(c1 * c2 * .. * cN)%type], or [unit] if the list is empty *)
 

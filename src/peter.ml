@@ -6,10 +6,11 @@ open Tast
 open Rocq
 module M = Map.Make (String)
 
+type file = Stdlib | Primitives | Normal
+
 let sig_tbl : (string * string list) list IdTable.t = IdTable.create 100
 let ocaml_id_tbl : string IdTable.t = IdTable.create 100
 let () = IdTable.add sig_tbl Constants.set_id.id_tag [ ("_set_sig", []) ]
-let map_ocaml_id id = IdTable.add ocaml_id_tbl id.id_tag (id.id_str ^ "''")
 
 let ocaml_id id =
   try IdTable.find ocaml_id_tbl id.id_tag with Not_found -> id.id_str
@@ -85,10 +86,11 @@ let inline = function
   | _ -> false
 
 (** This flag notes if we are translating the Gospel standard library. *)
-let is_stdlib = ref false
+let file_type = ref Normal
 
-let stdlib_skip nm = !is_stdlib && inline nm.id_str
-let is_internal id = !is_stdlib || Ident.is_stdlib id || Ident.is_primitive id
+let is_stdlib () = !file_type = Stdlib
+let stdlib_skip nm = is_stdlib () && inline nm.id_str
+let is_internal id = is_stdlib () || Ident.is_stdlib id || Ident.is_primitive id
 
 let valid_string id =
   let str = ocaml_id id in
@@ -266,7 +268,7 @@ module type Sep_to_rocq = sig
   val pred_typ :
     string list -> (string * string list) list ref -> Tast.lens_info -> rocq
 
-  val import_stdlib : gospelstdlib:bool -> rocqtops
+  val import_stdlib : special:file -> rocqtops
   val decl_args : (string * string) list
 end
 
@@ -286,7 +288,17 @@ module Sep_to_iris : Sep_to_rocq = struct
     }
 
   let import_stdpp =
-    [ Rocqtop_require_import [ "Stdlib.ZArith.BinInt"; "stdpp.base" ] ]
+    [
+      Rocqtop_require_import
+        [ "Gospel.primitives"; "Stdlib.ZArith.BinInt"; "stdpp.base" ];
+    ]
+
+  let import_primitives =
+    [
+      Rocqtop_require_import [ "gospelstdlib_mli"; "Gospel.primitives"; "heap" ];
+      Rocqtop_require [ "gospelstdlib_mli"; "gospelstdlib_proof" ];
+      Rocqtop_import [ "gospelstdlib_mli.Declarations" ];
+    ]
 
   let import_stdpp_impl = [ Rocqtop_require_import [ "Gospel.iris.base" ] ]
 
@@ -308,8 +320,11 @@ module Sep_to_iris : Sep_to_rocq = struct
     let l = mk_insts_path path !deps in
     rocq_insts l ty
 
-  let import_stdlib ~gospelstdlib =
-    (if gospelstdlib then import_stdpp else import_stdpp_impl)
+  let import_stdlib ~special =
+    (match special with
+    | Stdlib -> import_stdpp
+    | Primitives -> import_primitives
+    | Normal -> import_stdpp_impl)
     @ [ Rocqtop_custom "Local Open Scope Z_scope" ]
 
   let decl_args = [ ("Heap", "H") ]
@@ -327,14 +342,7 @@ module Sep_to_CFML : Sep_to_rocq = struct
       Rocqtop_require_import [ "TLC.LibCore" ];
     ]
 
-  let import_tlc_impl =
-    [
-      Rocqtop_require_import
-        [
-          "Stdlib_tlc.gospelstdlib_verified_tlc";
-          "Stdlib_tlc.gospelstdlib_mli_tlc";
-        ];
-    ]
+  let import_tlc_impl = [ Rocqtop_require_import [ "Gospel.CFML.base" ] ]
 
   let import_sl =
     [
@@ -352,17 +360,28 @@ module Sep_to_CFML : Sep_to_rocq = struct
         ];
     ]
 
+  let import_primitives =
+    [
+      Rocqtop_require_import
+        [ "gospelstdlib_mli.Declarations"; "Gospel.primitives"; "heap" ];
+      Rocqtop_require [ "gospelstdlib_proof" ];
+    ]
+
   let pred_typ _ _ _ = assert false
 
-  let import_stdlib ~gospelstdlib =
-    (if gospelstdlib then import_tlc else import_tlc_impl)
+  let import_stdlib ~special =
+    (match special with
+    | Stdlib -> import_tlc
+    | Primitives -> import_primitives
+    | Normal -> import_tlc_impl)
     @ [ Rocqtop_custom "Local Open Scope comp_scope" ]
 
   let decl_args = []
 end
 
 module type P = sig
-  val sep_defs : stdlib:bool -> Sast.definition list Gospel.file -> rocqtop list
+  val sep_defs :
+    special:file -> Sast.definition list Gospel.file -> rocqtop list
 end
 
 module Make (M : Sep_to_rocq) : P = struct
@@ -456,9 +475,7 @@ module Make (M : Sep_to_rocq) : P = struct
 
   let tdef path tdef =
     let tname = id_mapper tdef.type_name.id_str in
-    if tdef.type_ocaml then
-      let () = map_ocaml_id tdef.type_name in
-      ocaml_tdef tdef
+    if tdef.type_ocaml then ocaml_tdef tdef
     else
       match tdef.type_def with
       | Abstract ->
@@ -565,18 +582,12 @@ module Make (M : Sep_to_rocq) : P = struct
         let l = sep_defs path t in
         combine s l
 
-  let import_gospelstdlib stdlib =
-    import_stdlib ~gospelstdlib:stdlib
-    @
-    if stdlib then [ Rocqtop_require_import [ "Gospel.primitives" ] ]
-    else [ Rocqtop_import [ "Proofs"; "Declarations" ] ]
+  let import_sep_semantics = function Stdlib -> [] | _ -> import_sl
 
-  let import_sep_semantics stdlib = if stdlib then [] else import_sl
-
-  let sep_defs ~stdlib file =
-    let () = is_stdlib := stdlib in
+  let sep_defs ~special file =
+    let () = file_type := special in
     let imports =
-      import_gospelstdlib stdlib
+      import_stdlib ~special
       @ [
           Rocqtop_require_import
             [
@@ -585,38 +596,38 @@ module Make (M : Sep_to_rocq) : P = struct
               "Stdlib.Strings.Ascii";
             ];
         ]
-      @ import_sep_semantics stdlib
+      @ import_sep_semantics special
     in
     let defs = sep_defs [] file.Gospel.fdefs in
     let extra_decl, extra_obl =
       let import_decls = Rocqtop_import [ decl_mod ] in
-      if stdlib then
-        let set_decl =
-          tclass "_set_sig" [] [] "set" (rocq_forall_types [ Ident.mk_id "A" ])
-        in
-        let set_obl = tinst "_set_inst" "_set_sig" in
-        ([ set_decl ], [ import_decls; set_obl ])
-      else
-        let open Gospel_checker.Utils.Fmt in
-        let mod_nms = List.map fst M.decl_args in
-        let extra_obl =
-          if M.decl_args = [] then []
+      match special with
+      | Stdlib ->
+          let set_decl =
+            tclass "_set_sig" [] [] "set"
+              (rocq_forall_types [ Ident.mk_id "A" ])
+          in
+          let set_obl = tinst "_set_inst" "_set_sig" in
+          ([ set_decl ], [ import_decls; set_obl ])
+      | Normal | Primitives ->
+          let open Gospel_checker.Utils.Fmt in
+          let mod_nms = List.map fst M.decl_args in
+          if M.decl_args = [] then ([], [])
           else
-            [
-              Rocqtop_custom
-                (Format.asprintf "Module %s := %s%a" decl_mod decl_mod
-                   (list ~sep:sp ~first:sp string)
-                   mod_nms);
-              import_decls;
-            ]
-        in
-        let extra_decl = [ import mod_nms ] in
-        (extra_decl, extra_obl)
+            ( [ import mod_nms ],
+              [
+                Rocqtop_custom
+                  (Format.asprintf "Module %s := %s%a" decl_mod decl_mod
+                     (list ~sep:sp ~first:sp string)
+                     mod_nms);
+                import_decls;
+              ] )
     in
 
     let decl_args =
-      if stdlib then []
-      else List.map (fun (v, t) -> tv v (Rocq_var t)) M.decl_args
+      match special with
+      | Stdlib -> []
+      | _ -> List.map (fun (v, t) -> tv v (Rocq_var t)) M.decl_args
     in
     let decls =
       rocq_module decl_mod decl_args (extra_decl @ defs.declarations)

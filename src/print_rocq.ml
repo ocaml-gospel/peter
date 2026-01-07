@@ -22,7 +22,7 @@ let separate_map ?(first = break 1) ?(last = break 1) ?(sep = break 1) f l =
 
 (* Global parameters. *)
 
-let width = ref 80
+let width = 80
 
 (* -------------------------------------------------------------------------- *)
 
@@ -31,7 +31,8 @@ let width = ref 80
 let arrow = string " ->" ^^ break 1
 let doublearrow = string "=>"
 let colonequals = string " :="
-let spacecolon = string " :"
+let spacecolon = string " : "
+let spacecolonbr = string " :" ^^ break 1
 let hardline2 = hardline ^^ hardline
 let semi = string ";" ^^ break 1
 
@@ -60,10 +61,6 @@ let app d1 d2 =
    opening and closing parentheses alone on a line and indenting the content. *)
 
 let parens d = lparen ^^ d ^^ rparen
-
-(* Braces with spacing and indentation. *)
-
-let braces d = lbrace ^^ space ^^ d ^^ space ^^ rbrace
 
 (* Coq-record braces {| ... |} with spacing and indentation. *)
 
@@ -161,7 +158,7 @@ module Printer (Sep_printer : S) = struct
     | Rocq_infix (e1, "->", Rocq_infix (e2, "->", e3)) ->
         expr0 e1 ^^ arrow ^^ expr0 e2 ^^ arrow ^^ expr1 e3
     | Rocq_infix (e1, v, e2) ->
-        group (expr0 e1 ^^ space ^^ string v ^^ space ^^ expr0 e2)
+        expr0 e1 ^^ break 1 ^^ string v ^^ break 1 ^^ expr0 e2
     | e -> expr0 e
 
   and quant_vars quant vars d = (string quant ^^ tvars ~last:commabr vars) ^^ d
@@ -212,11 +209,6 @@ module Printer (Sep_printer : S) = struct
 
   (* Tools for toplevel elements. *)
 
-  (* A definition, without a leading keyword, but with a leading space.
-   [ x : d1 :=]. *)
-
-  let definition x d1 = space ^^ x ^^ spacecolon ^^ d1 ^^ break 1 ^^ colonequals
-
   (* A parameter, without a leading keyword, but with a leading space.
    [ x : d1.]. *)
 
@@ -230,29 +222,35 @@ module Printer (Sep_printer : S) = struct
 
   let fields =
     separate_map ~sep:semi ~first:empty ~last:empty (fun (v, t) ->
-        string v ^^ spacecolon ^^ break 1 ^^ expr t)
+        string v ^^ spacecolonbr ^^ expr t)
 
   let record r =
-    definition (string r.rname ^^ bindings ~first:space r.rvars) (expr typ)
-    ^^ braces (fields r.rfields)
+    (string r.rname ^^ bindings ~first:space r.rvars)
+    ^^ expr typ ^^ colonequals ^^ space
+    ^^ nest (lbrace ^^ break 1 ^^ fields r.rfields)
+    ^^ break 1 ^^ rbrace
 
   let type_var v = lbrace ^^ string v ^^ rbrace
-  let type_vars = separate_map type_var
+  let type_vars = separate_map ~first:empty type_var
 
   (* -------------------------------------------------------------------------- *)
 
   (* Top level elements. *)
 
   let inst x = string "`" ^^ braces (string "@" ^^ string x)
-  let insts = separate_map ~last:empty inst
+  let insts = separate_map ~first:empty inst
 
   let rocq_class c =
-    string "Class " ^^ string c.cname ^^ insts c.cdeps ^^ colonequals ^^ space
-    ^^ lbrace
-    ^^ nest
-         (break 1 ^^ string c.cproj ^^ spacecolon ^^ space
-        ^^ forall_tvars c.ctvars ^^ expr c.crocq)
-    ^^ break 1 ^^ rbrace
+    string "Class " ^^ string c.cname ^^ space ^^ insts c.cdeps ^^ colonequals
+    ^^ space ^^ lbrace
+    ^^ group
+         (nest
+            (break 1 ^^ string c.cproj
+            ^^ nest (spacecolonbr ^^ forall_tvars c.ctvars ^^ expr c.crocq))
+         ^^ break 1 ^^ rbrace)
+
+  let deps xs = nest (separate_map ~last:empty string xs)
+  let import xs = string "Import" ^^ deps xs
 
   let rec top = function
     | Rocqtop_def def ->
@@ -260,17 +258,17 @@ module Printer (Sep_printer : S) = struct
         string keyword ^^ space ^^ string def.def_nm ^^ space
         ^^ type_vars def.def_tvars ^^ insts def.def_insts
         ^^ bindings ~first:empty def.def_args
-        ^^ colon ^^ space ^^ expr def.def_return ^^ colonequals ^^ break 1
-        ^^ nest (expr def.def_body)
+        ^^ colon ^^ space ^^ expr def.def_return ^^ colonequals
+        ^^ group (nest (break 1 ^^ expr def.def_body))
     | Rocqtop_param param ->
         string "Parameter" ^^ parameter param.param_nm param.param_ret
     | Rocqtop_instance instance ->
         string "Global Declare Instance "
         ^^ string instance.inst_nm ^^ spacecolon ^^ string instance.inst_class
-    | Rocqtop_record r -> string "Record" ^^ record r
-    | Rocqtop_import xs -> string "Import " ^^ flow_map space string xs
-    | Rocqtop_require_import xs ->
-        string "Require Import " ^^ flow_map space string xs
+    | Rocqtop_record r -> string "Record " ^^ record r
+    | Rocqtop_import xs -> import xs
+    | Rocqtop_require xs -> string "Require" ^^ deps xs
+    | Rocqtop_require_import xs -> string "Require " ^^ import xs
     | Rocqtop_module (x, args, defs) -> print_module "Module" x args defs
     | Rocqtop_module_type (x, args, d) -> print_module "Module Type" x args d
     | Rocqtop_module_type_include x -> string "Include Type %s." ^^ string x
@@ -298,7 +296,7 @@ module Printer (Sep_printer : S) = struct
   (* The main entry point translates a list of toplevel elements to a string. *)
 
   let print ts : string =
-    run (PPrint.ToBuffer.pretty 0.7 !width) (tops ~first:empty ~last:empty ts)
+    run (PPrint.ToBuffer.pretty 0.9 width) (tops ~first:empty ~last:empty ts)
 end
 
 module rec Iris : S = struct

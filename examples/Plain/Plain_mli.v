@@ -1,8 +1,6 @@
-Require Import Stdlib_stdpp.iris_core.
+Require Import Gospel.iris.base.
 
 Local Open Scope Z_scope.
-
-Import Proofs Declarations.
 
 Require Import Stdlib.Floats.Floats Stdlib.ZArith.BinIntDef Stdlib.Strings.Ascii.
 
@@ -12,21 +10,24 @@ Module Declarations (Heap :H) .
 
   Import Heap.
 
+  Module Primitives := Primitives Heap.
+  Import Primitives.
+
   Import Bag.
 
-  Definition priority : Type :=
+  Definition priority'' : Type :=
   val.
 
   Class _Priority_sig := {
-    Priority : priority -> Z -> iProp
+    Priority : priority'' -> integer -> iProp
   }.
 
-  Definition t (A :Type) : Type :=
+  Definition t'' (A :Type) : Type :=
   val.
 
   Class _T_sig := {
-    T : forall { A }, (t A) ->
-    (bag (Corelib.Init.Datatypes.prod val Z)) ->
+    T : forall { A }, (t'' A) ->
+    (bag (val * integer)) ->
     iProp
   }.
 
@@ -40,9 +41,34 @@ Module Declarations (Heap :H) .
     `{ Inhabited A },
     {{{  True  }}}
     create  #()
-    {{{  (__q :t A) , RET (__q :t A);
-    ∃ (q :bag (Corelib.Init.Datatypes.prod val Z)),
-    T __q q
+    {{{  (q'' :t'' A) , RET (q'' :t'' A);
+      ∃ (q :bag (val * integer)),  T q'' q   }}}
+  }.
+
+  Class _add_sig := {
+    add : val
+  }.
+
+  Class _add_spec_sig
+  `{ @_add_sig }
+  `{ @_T_sig }
+  `{ @_Priority_sig } := {
+    add_spec : forall { A }, forall
+    `{ _T_sig }
+    `{ _Priority_sig }
+    `{ Inhabited A }
+    (q'' :t A)
+    (q :bag (val * integer))
+    (x'' :A)
+    (x :val)
+    (i'' :priority)
+    (i :integer),
+    {{{  T q'' q∗Val x'' x∗Priority i'' i  }}}
+    add  (q'' :t A) (x'' :A) (i'' :priority)
+    {{{ RET #();
+
+    ∃ (_q' :bag (val * integer)),
+    T q'' _q'∗Val x'' x∗Priority i'' i
 
      }}}
   }.
@@ -65,5 +91,9 @@ Heap.
   Global Declare Instance _create_inst :_create_sig.
 
   Global Declare Instance _create_spec_inst :_create_spec_sig.
+
+  Global Declare Instance _add_inst :_add_sig.
+
+  Global Declare Instance _add_spec_inst :_add_spec_sig.
 
 End Obligations.
