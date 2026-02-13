@@ -226,7 +226,7 @@ module Printer (Sep_printer : S) = struct
 
   let record r =
     (string r.rname ^^ bindings ~first:space r.rvars)
-    ^^ expr typ ^^ colonequals ^^ space
+    ^^ colonequals ^^ space
     ^^ nest (lbrace ^^ break 1 ^^ fields r.rfields)
     ^^ break 1 ^^ rbrace
 
@@ -280,6 +280,7 @@ module Printer (Sep_printer : S) = struct
         string "Notation " ^^ string nm ^^ colonequals ^^ break 1
         ^^ parens (expr e)
         ^^ string " (only parsing)"
+    | Rocqtop_comment str -> string "(* " ^^ string str ^^ string " *)"
 
   and print_module prefix x args defs =
     string prefix ^^ space ^^ string x
@@ -289,7 +290,9 @@ module Printer (Sep_printer : S) = struct
     ^^ hardline ^^ string "End " ^^ string x
 
   and tops ?(first = hardline) ?(last = hardline) ts : document =
-    separate_map (fun t -> top t ^^ dot) ~sep:hardline2 ~first ~last ts
+    separate_map
+      (fun t -> top t ^^ match t with Rocqtop_comment _ -> empty | _ -> dot)
+      ~sep:hardline2 ~first ~last ts
 
   (* -------------------------------------------------------------------------- *)
 
@@ -309,12 +312,12 @@ module rec Iris : S = struct
   let spec_var named = function
     | Var x ->
         named := true;
-        tvar x
+        string (Option.get x.var_name)
     | Wildcard -> assert false
     | Unit -> string "#()"
 
   let spec_var_opt = function
-    | Var x -> Some (tvar x)
+    | Var x -> Some (string (Option.get x.var_name))
     | Wildcard -> assert false
     | Unit -> None
 

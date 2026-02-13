@@ -65,16 +65,15 @@ let project_file = "_CoqProject"
 let mk_base base_dir mod_name =
   let oc = open_out (base_dir ^ mod_name ^ proof_suffix) in
   let rocq_mli_module = mod_name ^ module_suffix in
-  output_string oc
-    (Printf.sprintf
-       "Require Import %s.\n\n\
-        Module Proofs : %s.Obligations.\n\n\
-       \  Import Declarations.\n\n\
-        End Proofs.\n"
-       rocq_mli_module rocq_mli_module);
+  let proof_file =
+    match !backend with
+    | CFML -> assert false
+    | Iris -> Iris.proof_file rocq_mli_module
+  in
+  output_string oc proof_file;
   close_out oc;
-  let project_file = base_dir ^ project_file in
-  let oc = open_out project_file in
+  let project_file_in_dir = base_dir ^ project_file in
+  let oc = open_out project_file_in_dir in
   let rocq_module = Printf.sprintf "-R . %s\n" mod_name in
   let interface = mod_name ^ interface_suffix in
   output_string oc rocq_module;
@@ -101,7 +100,9 @@ let () =
     | CFML -> CFML.sep_defs ~special:!file_special file_sep
   in
 
-  dir := if not (String.ends_with ~suffix:"/" !dir) then !dir ^ "/" else !dir;
+  dir :=
+    if (not (String.ends_with ~suffix:"/" !dir)) && !dir <> "" then !dir ^ "/"
+    else !dir;
   let base_dir = if !compile then !dir ^ file_sep.fmodule ^ "/" else "" in
   let mk_project = !compile && not (Sys.file_exists base_dir) in
   if mk_project then Sys.mkdir base_dir 0o755;

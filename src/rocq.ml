@@ -111,6 +111,7 @@ type rocqtop =
   | Rocqtop_section of var
   | Rocqtop_context of typed_vars
   | Rocqtop_notation of var * rocq
+  | Rocqtop_comment of string
 
 and rocqtops = rocqtop list
 
