@@ -36,7 +36,3 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-
-pin-depends: [
-  "gospel.dev" "git+https://github.com/mrjazzybread/gospel.git#ec2f99eec7126eb21ae77bd3f66a38b37b552eb3"
-]
