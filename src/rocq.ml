@@ -245,6 +245,9 @@ let rocq_hexists l s =
 let rocq_insts l rocq =
   match l with [] -> rocq | _ -> Rocq_quant (Forall, List.map inst l, rocq)
 
+let rocq_encoders l rocq =
+  rocq_insts (List.map (fun x -> "Enc " ^ to_tvar x) l) rocq
+
 let rocq_forall_types names = rocq_foralls (tv_tvars names) typ
 
 (** Implication [c1 -> c2] *)

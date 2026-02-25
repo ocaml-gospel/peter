@@ -38,7 +38,9 @@ let spec =
       "For developers only. This flag has two settings \"stdlib\" and \
        \"primitives\" which are used when translating the Gospel standard \
        library or the OCaml primitives specification." );
-    ("--no-compile", Arg.Unit (fun () -> compile := false), "");
+    ( "--no-compile",
+      Arg.Unit (fun () -> compile := false),
+      "This flag disables the compilation of the generated .mli" );
   ]
 
 module Iris = Peter.Make (Peter.Sep_to_iris)
@@ -56,6 +58,7 @@ let set_file f =
   | _ -> usage ()
 
 let () = Arg.parse spec set_file usage_msg
+let () = if !backend = CFML then compile := false
 let fname = match !fname with None -> usage () | Some f -> f
 let module_suffix = "_mli"
 let interface_suffix = module_suffix ^ ".v"
@@ -64,12 +67,7 @@ let project_file = "_CoqProject"
 
 let mk_base base_dir mod_name =
   let oc = open_out (base_dir ^ mod_name ^ proof_suffix) in
-  let rocq_mli_module = mod_name ^ module_suffix in
-  let proof_file =
-    match !backend with
-    | CFML -> assert false
-    | Iris -> Iris.proof_file rocq_mli_module
-  in
+  let proof_file = Iris.proof_file mod_name in
   output_string oc proof_file;
   close_out oc;
   let project_file_in_dir = base_dir ^ project_file in
@@ -87,7 +85,9 @@ let mk_base base_dir mod_name =
   ()
 
 let () =
-  let map = fun x -> x ^ "''" in
+  let map =
+    match !backend with CFML -> fun x -> x ^ "_" | Iris -> fun x -> x ^ "''"
+  in
   let file_sep =
     match Gospel.sep ~verbose:false ~map [ fname ] with
     | [ x ] -> x
@@ -106,7 +106,7 @@ let () =
   let base_dir = if !compile then !dir ^ file_sep.fmodule ^ "/" else "" in
   let mk_project = !compile && not (Sys.file_exists base_dir) in
   if mk_project then Sys.mkdir base_dir 0o755;
-  let fname = String.uncapitalize_ascii file_sep.fmodule in
+  let fname = Filename.chop_extension file_sep.fname in
   let oc = open_out (base_dir ^ fname ^ interface_suffix) in
   let tops =
     match !backend with
@@ -116,7 +116,14 @@ let () =
   let file = tops file_cfml in
   Out_channel.output_string oc file;
   close_out oc;
-  if mk_project then mk_base base_dir fname;
+  let () = if mk_project then mk_base base_dir fname in
+  let () =
+    if !backend = CFML && not (Sys.file_exists (fname ^ proof_suffix)) then
+      let oc = open_out (fname ^ proof_suffix) in
+      let proof_file = CFML.proof_file fname in
+      let () = output_string oc proof_file in
+      close_out oc
+  in
   if !compile then
     let _ =
       Sys.command (Printf.sprintf "cd %s && make 1> /dev/null" base_dir)

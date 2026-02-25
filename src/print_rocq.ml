@@ -359,7 +359,10 @@ module rec CFML : S = struct
   let spec_vars l =
     let spec_var v =
       string
-        (match v with Unit | Wildcard -> "_" | Var v -> Option.get v.var_name)
+        (match v with
+        | Unit -> "tt"
+        | Wildcard -> "_"
+        | Var v -> Option.get v.var_name)
     in
     separate_map spec_var l
 
@@ -383,7 +386,7 @@ module rec CFML : S = struct
         ^^ parens
              (string "fun" ^^ space
              ^^ string (Option.get x.var_name)
-             ^^ doublearrow ^^ post)
+             ^^ spacecolon ^^ expr x.var_type ^^ doublearrow ^^ post)
     | l ->
         let ret_name = "_rets_" in
         string "POST"
