@@ -8,12 +8,9 @@ module M = Map.Make (String)
 
 type file = Stdlib | Primitives | Normal
 
-let sig_tbl : (string * string list) list IdTable.t = IdTable.create 100
-let ocaml_id_tbl : string IdTable.t = IdTable.create 100
-let () = IdTable.add sig_tbl Constants.set_id.id_tag [ ("_set_sig", []) ]
-
-let ocaml_id id =
-  try IdTable.find ocaml_id_tbl id.id_tag with Not_found -> id.id_str
+let sig_tbl : string list IdTable.t = IdTable.create 100
+let () = IdTable.add sig_tbl Constants.set_id.id_tag [ "set٠٠sig" ]
+let ocaml_id str path = List.fold_left (fun acc str -> str ^ "٠" ^ acc) str path
 
 type decls = {
   declarations : Rocq.rocqtops;
@@ -29,13 +26,12 @@ type decls = {
 
 (** Helper functions to generate names. *)
 
-let class_name v = "_" ^ v ^ "_sig"
-let inst_name v = "_" ^ v ^ "_inst"
-let stmt_name v = "_" ^ v ^ "_stmt"
+let class_name v = v ^ "٠٠sig"
+let inst_name v = v ^ "٠٠inst"
 
 (** Names for the generated modules. *)
 
-let decl_mod = "Declarations"
+let spec_section = "Spec"
 let obl_mod = "Obligations"
 
 let unicode_mapper = function
@@ -74,8 +70,13 @@ let id_mapper = function
   | "[->]" -> "map_set"
   | "{}" -> "set_create"
   | "{:_:}" -> "singleton_set"
-  | s when List.mem s rocq_keywords -> "_" ^ s
   | s -> unicode_mapper s
+
+let id_mapper id =
+  let id' = id_mapper id.id_str in
+  if id' = id.id_str && not (List.mem id' rocq_keywords) then
+    ocaml_id id' id.id_path
+  else ocaml_id ("__" ^ id') id.id_path
 
 (** Function definitions that should not be present in any standard library
     implementation. *)
@@ -93,12 +94,9 @@ let stdlib_skip nm = is_stdlib () && inline nm.id_str
 let is_internal id = is_stdlib () || Ident.is_stdlib id || Ident.is_primitive id
 
 let valid_string id =
-  let str = ocaml_id id in
-  if is_internal id && inline str then str else id_mapper str
+  if is_internal id && inline id.id_str then id.id_str else id_mapper id
 
-let rec qid_to_string = function
-  | Qid id -> valid_string id
-  | Qdot (q, id) -> qid_to_string q ^ "." ^ valid_string id
+let qid_to_string = function Qid id | Qdot (_, id) -> valid_string id
 
 let remove_dups l =
   let rec remove_dups visited = function
@@ -108,18 +106,6 @@ let remove_dups l =
         else x :: remove_dups (x :: visited) t
   in
   remove_dups [] l
-
-let rec mk_relative absolute_path current_path =
-  match (absolute_path, current_path) with
-  | [], _ -> ""
-  | absolute_path, [] -> String.concat "." absolute_path
-  | x :: t1, y :: t2 ->
-      if x = y then mk_relative t1 t2 else String.concat "." absolute_path
-
-let mk_insts_path curr_path =
-  List.map (fun (x, path) ->
-      let rel = mk_relative path curr_path in
-      rel ^ (if rel <> "" then "." else "") ^ x)
 
 let update_deps deps q =
   let id = Uast_utils.leaf q in
@@ -202,8 +188,8 @@ let let_pat p =
         ts
   | _ -> assert false
 
-let rec rocq_term path deps tvar_tbl t =
-  let rocq_term = rocq_term path deps tvar_tbl in
+let rec rocq_term deps tvar_tbl t =
+  let rocq_term = rocq_term deps tvar_tbl in
   match t.t_node with
   | Tvar (q, ptys) ->
       update_deps deps q;
@@ -261,22 +247,22 @@ let rec rocq_term path deps tvar_tbl t =
   | Tscope _ | Tcast _ -> assert false
 
 module type Sep_to_rocq = sig
+  val heap : string
   val inhab : var -> var
+  val sl_prop : rocq
   val ocaml_tdef : type_decl -> decls
   val import_sl : rocqtops
-
-  val pred_typ :
-    string list -> (string * string list) list ref -> Tast.lens_info -> rocq
-
+  val pred_typ : string list ref -> Id_uast.lens_info -> rocq
   val import_stdlib : special:file -> rocqtops
-  val decl_args : (string * string) list
   val typed_view : bool
   val proof_file : string -> string
 end
 
 module Sep_to_iris : Sep_to_rocq = struct
+  let heap = " `{ZooG Σ}"
   let typed_view = false
   let inhab v = "Inhabited " ^ v
+  let sl_prop = rocq_var "iProp"
   let ocaml_tdef _ = { declarations = []; obligations = [] }
 
   let import_stdpp =
@@ -287,9 +273,8 @@ module Sep_to_iris : Sep_to_rocq = struct
 
   let import_primitives =
     [
-      Rocqtop_require_import [ "gospelstdlib_mli"; "Gospel.primitives"; "heap" ];
+      Rocqtop_require_import [ "gospelstdlib_mli"; "Gospel.primitives" ];
       Rocqtop_require [ "gospelstdlib_mli"; "gospelstdlib_proof" ];
-      Rocqtop_import [ "gospelstdlib_mli.Declarations" ];
     ]
 
   let import_stdpp_impl = [ Rocqtop_require_import [ "Gospel.iris.base" ] ]
@@ -298,27 +283,26 @@ module Sep_to_iris : Sep_to_rocq = struct
     [
       Rocqtop_require_import
         [
-          "iris.proofmode.proofmode";
-          "iris.heap_lang.proofmode";
-          "iris.heap_lang.notation";
-          "iris.prelude.options";
+          "zoo.prelude";
+          "zoo.diaframe.diaframe";
+          "zoo.language.notations";
+          "zoo.language.typeclasses";
+          "zoo.language.notations";
         ];
     ]
 
-  let pred_typ path deps lens =
+  let rec pred_typ deps lens =
     let i_prop = rocq_var "iProp" in
     let model_ty = rocq_ty deps lens.lmodel in
-    let ty = rocq_impls [ rocq_val; model_ty ] i_prop in
-    let l = mk_insts_path path !deps in
-    rocq_insts l ty
+    let lens_params = List.map (pred_typ deps) lens.llens_params in
+    let ty = rocq_impls ((rocq_val :: lens_params) @ [ model_ty ]) i_prop in
+    rocq_insts !deps ty
 
   let import_stdlib ~special =
     match special with
     | Stdlib -> import_stdpp
     | Primitives -> import_primitives
     | Normal -> import_stdpp_impl
-
-  let decl_args = [ ("Heap", "H") ]
 
   let proof_file mli_file =
     Format.sprintf
@@ -330,8 +314,7 @@ module Sep_to_iris : Sep_to_rocq = struct
       \  iris.prelude.options.\n\n\
        Require Import Gospel.iris.base.\n\n\
        Local Open Scope Z_scope.\n\n\
-       Module Proofs (Heap : H) : %s.Obligations Heap.\n\n\
-      \  Module Declarations := Declarations Heap.\n\
+       Module Proofs : %s.Obligations.\n\n\
       \  Import Declarations.\n\
       \       \n\
       \  (* Provide the necessary typeclass instances *)\n\n\
@@ -340,8 +323,10 @@ module Sep_to_iris : Sep_to_rocq = struct
 end
 
 module Sep_to_CFML : Sep_to_rocq = struct
+  let heap = ""
   let typed_view = true
   let inhab v = "Inhab " ^ v
+  let sl_prop = Rocq_var "hprop"
   let ocaml_tdef _ = assert false
 
   let import_tlc =
@@ -372,12 +357,11 @@ module Sep_to_CFML : Sep_to_rocq = struct
 
   let import_primitives =
     [
-      Rocqtop_require_import
-        [ "gospelstdlib_mli.Declarations"; "Gospel.primitives"; "heap" ];
+      Rocqtop_require_import [ "gospelstdlib_mli"; "Gospel.primitives" ];
       Rocqtop_require [ "gospelstdlib_proof" ];
     ]
 
-  let pred_typ _ _ _ = assert false
+  let pred_typ _ _ = assert false
 
   let import_stdlib ~special =
     (match special with
@@ -386,7 +370,6 @@ module Sep_to_CFML : Sep_to_rocq = struct
     | Normal -> import_tlc_impl)
     @ [ Rocqtop_custom "Local Open Scope comp_scope" ]
 
-  let decl_args = []
   let proof_file _ = ""
 end
 
@@ -430,14 +413,21 @@ module Make (M : Sep_to_rocq) : P = struct
         in
         [ arg_ocaml; v.arg_model ]
 
-  let sep_term path deps tbl t =
+  let rec lens_app l =
+    let lens_app app =
+      let nm = qid_to_string app.lqid in
+      rocq_apps_var nm (lens_app app.largs)
+    in
+    List.map lens_app l
+
+  let sep_term deps tbl t =
     let rec sep_term = function
-      | Logical t -> Rocq_pure (rocq_term path deps tbl t)
-      | Lift (sym, arg1, arg2) ->
-          let ocaml = rocq_term path deps tbl arg1 in
-          let model = rocq_term path deps tbl arg2 in
-          let () = update_deps deps (Qid sym.ps_name) in
-          Rocq_lift (sym.ps_name.id_str, ocaml, model)
+      | Logical t -> Rocq_pure (rocq_term deps tbl t)
+      | Lift (sym, arg1, lenses, arg2) ->
+          let ocaml = rocq_term deps tbl arg1 in
+          let model = rocq_term deps tbl arg2 in
+          let () = update_deps deps sym in
+          Rocq_lift (qid_to_string sym, (ocaml :: lens_app lenses) @ [ model ])
       | Quant (q, vs, t) ->
           let q = match q with Tforall -> Forall | Texists -> Exists in
           let args =
@@ -449,69 +439,75 @@ module Make (M : Sep_to_rocq) : P = struct
     in
     sep_term t
 
-  let sep_terms path deps tbl = function
+  let sep_terms deps tbl = function
     | [] -> [ Rocq_hempty ]
-    | l -> List.map (sep_term path deps tbl) l
+    | l -> List.map (sep_term deps tbl) l
 
   let triple_rets deps l =
     match l with [] -> [ Rocq.Unit ] | rets -> spec_args deps rets
 
   let inhabs l = List.map inhab l
 
-  let gen_spec deps path triple =
+  let gen_spec deps triple =
     let all_ts = List.concat_map triple_val_to_ts triple.triple_args in
     let tbl = gen_tbl all_ts in
-    let tvars = if typed_view then tvars triple.triple_otvars else [] in
+    let tvars = tvars triple.triple_otvars in
     let args = spec_args deps triple.triple_args in
     let inhabs = inhabs tvars in
     let all_vars = List.map (rocq_tv deps) all_ts in
-    let pre = sep_terms path deps tbl triple.triple_pre in
+    let pre = sep_terms deps tbl triple.triple_pre in
     let ex, posts = triple.triple_post in
-    let post = sep_terms path deps tbl posts in
+    let post = sep_terms deps tbl posts in
     let vars = List.map (rocq_tv deps) ex in
     let post = rocq_hexists vars post in
     let ret_vars = triple_rets deps triple.triple_rets in
-    let f = triple.triple_name.id_str in
-    let all_vars = List.map inst inhabs @ all_vars in
-    rocq_foralls all_vars (rocq_spec f tvars pre args ret_vars post)
+    let f = id_mapper triple.triple_name in
+    let lenses = List.map (mk_lens sl_prop) tvars in
+    let all_vars = List.map inst inhabs @ all_vars @ lenses in
+    let spec = rocq_spec f tvars pre args ret_vars post in
+    let pers = rocq_persistent triple.triple_persistent spec in
+    Rocq_sep (rocq_hforalls all_vars pers)
 
-  let abstract id nm path deps tvars rocq description =
+  let abstract id nm deps tvars rocq description sigma =
     let class_name = class_name nm in
     let inst_name = inst_name nm in
     let underscores = List.fold_left (fun acc _ -> acc ^ " _") "" deps in
-    let dep_name = class_name ^ underscores in
-    let () = IdTable.add sig_tbl id (deps @ [ (dep_name, path) ]) in
+    let dep_name =
+      class_name ^ underscores ^ if sigma = "" then "" else " zoo_G"
+    in
+    let () = IdTable.add sig_tbl id (deps @ [ dep_name ]) in
     let tvars = List.map to_tvar tvars in
-    let deps = mk_insts_path path deps in
-    let c = tclass class_name deps tvars nm rocq in
+    let c = tclass (class_name ^ sigma) deps tvars nm rocq in
     let inst = tinst inst_name class_name in
     let comment = Rocqtop_comment (description ^ " " ^ nm) in
     { declarations = [ c ]; obligations = [ comment; inst ] }
 
-  let abstract_id nm path deps tvars rocq =
-    abstract nm.id_tag nm.id_str path deps tvars rocq
+  let abstract_id_sigma nm deps tvars rocq comment heap =
+    abstract nm.id_tag (id_mapper nm) deps tvars rocq comment heap
 
-  let tdef path tdef =
-    let tname = id_mapper tdef.type_name.id_str in
+  let abstract_id nm deps tvars rocq comment =
+    abstract_id_sigma nm deps tvars rocq comment ""
+
+  let tdef tdef =
+    let tname = id_mapper tdef.type_name in
     if tdef.type_ocaml then ocaml_tdef tdef
     else
       match tdef.type_def with
       | Abstract ->
           let typ = rocq_forall_types tdef.type_args in
-          abstract_id tdef.type_name path [] [] typ "Type definition"
+          abstract_id tdef.type_name [] [] typ "Type definition"
       | Alias t ->
           let deps = ref [] in
           let t = rocq_ty deps t in
           let tvars = tv_tvars tdef.type_args in
           let () = IdTable.add sig_tbl tdef.type_name.id_tag !deps in
-          let deps = mk_insts_path path !deps in
-          let def = rocqtop_def false tname [] deps tvars typ t in
+          let def = rocqtop_def false tname [] !deps tvars typ t in
           { empty_decls with declarations = [ def ] }
       | Record r ->
           let tvars = tv_tvars tdef.type_args in
           let deps = ref [] in
           let branches =
-            List.map (fun (s, t) -> (s.Ident.id_str, rocq_ty deps t)) r
+            List.map (fun (s, t) -> (id_mapper s, rocq_ty deps t)) r
           in
           let def =
             Rocqtop_record { rname = tname; rvars = tvars; rfields = branches }
@@ -524,31 +520,30 @@ module Make (M : Sep_to_rocq) : P = struct
       obligations = defs.obligations @ acc.obligations;
     }
 
-  let rec sep_def path d =
+  let rec sep_def d =
     match d.d_node with
-    | Type t -> tdef path t
+    | Type t -> tdef t
     | Pred pred ->
         let deps = ref [] in
-        let typ = pred_typ path deps pred in
+        let typ = pred_typ deps pred in
         let nm = pred.lid in
-        let tvars =
-          if typed_view then pred.lgvars @ pred.lovars else pred.lgvars
-        in
-        abstract_id nm path !deps tvars typ "Lens"
+        let tvs = Uast_utils.pty_tvars pred.lmodel in
+        let inhabs = rocq_insts (inhabs (tvars tvs)) typ in
+        abstract_id_sigma nm !deps tvs inhabs "Lens" heap
     | Triple triple ->
         let deps = ref [] in
-        let fun_triple = gen_spec deps path triple in
+        let fun_triple = gen_spec deps triple in
         let triple_name = to_triple triple.triple_name in
-        deps := (class_name triple.triple_name.id_str, []) :: !deps;
-        abstract_id triple_name path !deps triple.triple_gtvars fun_triple
+        deps := class_name (id_mapper triple.triple_name) :: !deps;
+        abstract_id triple_name !deps triple.triple_otvars fun_triple
           "Separation Logic Triple"
     | Val v ->
         let deps = ref [] in
-        abstract_id v.vname path !deps [] rocq_val "Program Value"
+        abstract_id v.vname !deps [] rocq_val "Program Value"
     | Function f -> (
         if stdlib_skip f.fun_name then empty_decls
         else
-          let name = id_mapper f.fun_name.id_str in
+          let name = id_mapper f.fun_name in
           let args = f.fun_params in
           let ret = f.fun_ret in
           let tvars = tvars f.fun_tvars in
@@ -556,10 +551,10 @@ module Make (M : Sep_to_rocq) : P = struct
           let ret_rocq = rocq_ty deps ret in
           let args_rocq = List.map (rocq_tv deps) args in
           let tbl = gen_tbl args in
-          let def = Option.map (rocq_term path deps tbl) f.fun_def in
+          let def = Option.map (rocq_term deps tbl) f.fun_def in
           match def with
           | Some d ->
-              let insts = mk_insts_path path !deps in
+              let insts = inhabs tvars @ !deps in
               let def =
                 rocqtop_def f.fun_rec name tvars insts args_rocq ret_rocq d
               in
@@ -571,38 +566,27 @@ module Make (M : Sep_to_rocq) : P = struct
                   args_rocq ret_rocq
               in
               let typ = rocq_insts (inhabs tvars) typ in
-              abstract f.fun_name.id_tag name path !deps f.fun_tvars typ
-                "Logical function")
+              abstract f.fun_name.id_tag name !deps f.fun_tvars typ
+                "Logical function" "")
     | Axiom a ->
         let tbl = gen_tbl [] in
         let deps = ref [] in
         let t =
           match a.sax_term with
-          | [ Logical t ] -> rocq_term path deps tbl t
+          | [ Logical t ] -> rocq_term deps tbl t
           | _ -> assert false
         in
         let t = rocq_insts (inhabs (tvars a.sax_tvars)) t in
-        abstract_id a.sax_name path !deps a.sax_tvars t "Axiom"
-    | Module (nm, l) ->
-        let nm_var = id_mapper nm.id_str in
-        let statements = sep_defs (nm_var :: path) l in
+        abstract_id a.sax_name !deps a.sax_tvars t "Axiom"
+    | Module (_, l) -> sep_defs l
+    | Import _ -> { declarations = []; obligations = [] }
 
-        let import = import [ decl_mod ^ "." ^ nm_var ] in
-        let declarations = [ rocq_module nm_var [] statements.declarations ] in
-        let obligations =
-          [ rocq_module nm_var [] (import :: statements.obligations) ]
-        in
-        { declarations; obligations }
-    | Import l ->
-        let l = [ Rocqtop_import [ qid_to_string l ] ] in
-        { declarations = l; obligations = [] }
-
-  and sep_defs path l =
+  and sep_defs l =
     match l with
     | [] -> empty_decls
     | x :: t ->
-        let s = sep_def path x in
-        let l = sep_defs path t in
+        let s = sep_def x in
+        let l = sep_defs t in
         combine s l
 
   let import_sep_semantics = function Stdlib -> [] | _ -> import_sl
@@ -622,55 +606,31 @@ module Make (M : Sep_to_rocq) : P = struct
       @ import_sep_semantics special
       @ [ Rocqtop_custom "Local Open Scope Z_scope" ]
     in
-    let defs = sep_defs [] file.Gospel.fdefs in
+    let context = Rocqtop_custom "Context `{zoo_G : !ZooG Σ}" in
+    let iprop = Rocqtop_custom "Notation iProp := (iProp Σ)" in
+    let defs = sep_defs file.Gospel.fdefs in
     let extra_decl, extra_obl =
-      let import_decls = Rocqtop_import [ decl_mod ] in
-      let open Gospel_checker.Utils.Fmt in
-      let mod_nms = List.map fst M.decl_args in
-      let import_heap_decl =
-        if M.decl_args = [] then ([], [])
-        else
-          ( [ import mod_nms ],
-            [
-              Rocqtop_custom
-                (Format.asprintf "Module %s := %s%a" decl_mod decl_mod
-                   (list ~sep:sp ~first:sp string)
-                   mod_nms);
-              import_decls;
-            ] )
-      in
       match special with
       | Stdlib ->
           let set_decl =
-            tclass "_set_sig" [] [] "set"
+            tclass "set٠٠sig" [] [] "set"
               (rocq_forall_types [ Ident.mk_id "A" ])
           in
-          let set_obl = tinst "_set_inst" "_set_sig" in
-          ([ set_decl ], [ import_decls; set_obl ])
-      | Primitives -> import_heap_decl
+          let set_obl = tinst "set٠٠inst" "set٠٠sig" in
+          ([ set_decl ], [ set_obl ])
+      | Primitives -> ([ context; iprop ], [ context ])
       | Normal ->
-          let decl, obl = import_heap_decl in
           let import_primitives =
-            [
-              Rocqtop_custom
-                (Format.asprintf "Module %s := %s%a" "Primitives" "Primitives"
-                   (list ~sep:sp ~first:sp string)
-                   mod_nms);
-              Rocqtop_import [ "Primitives" ];
-            ]
+            [ context; iprop; Rocqtop_import [ "Primitives" ] ]
           in
-          (import_primitives @ decl, obl)
+          (import_primitives, [ context ])
     in
 
-    let decl_args =
-      match special with
-      | Stdlib -> []
-      | _ -> List.map (fun (v, t) -> tv v (Rocq_var t)) M.decl_args
+    let decls = rocq_section spec_section (extra_decl @ defs.declarations) in
+    let obls =
+      mod_type obl_mod
+        [ rocq_section spec_section (extra_obl @ defs.obligations) ]
     in
-    let decls =
-      rocq_module decl_mod decl_args (extra_decl @ defs.declarations)
-    in
-    let obls = mod_type obl_mod decl_args (extra_obl @ defs.obligations) in
     let tops = [ decls; obls ] in
     imports @ tops
 

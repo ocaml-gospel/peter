@@ -37,7 +37,7 @@ and rocq =
   | Rocq_proj of var * rocq
   | Rocq_if of rocq * rocq * rocq
   | Rocq_match of rocq * (rocq * rocq) list
-  | Rocq_spec of spec
+  | Rocq_sep of rocq_sep
 
 and rocqs = rocq list
 
@@ -53,8 +53,11 @@ and spec = {
 and rocq_sep =
   | Rocq_pure of rocq
   | Rocq_hempty
-  | Rocq_lift of var * rocq * rocq
+  | Rocq_lift of var * rocq list
   | Rocq_hquant of quant * typed_vars * rocq_seps
+  | Rocq_persistent of var
+  | Rocq_wand of rocq_seps * rocq_seps
+  | Rocq_spec of spec
 
 and rocq_seps = rocq_sep list
 
@@ -104,11 +107,10 @@ type rocqtop =
   | Rocqtop_class of tclass
   | Rocqtop_require of vars
   | Rocqtop_require_import of vars
-  | Rocqtop_module of var * typed_var list * rocqtop list
-  | Rocqtop_module_type of var * typed_var list * rocqtop list
+  | Rocqtop_module_type of var * rocqtops
   | Rocqtop_module_type_include of var
   | Rocqtop_custom of string
-  | Rocqtop_section of var
+  | Rocqtop_section of var * rocqtops
   | Rocqtop_context of typed_vars
   | Rocqtop_notation of var * rocq
   | Rocqtop_comment of string
@@ -119,8 +121,8 @@ let tclass cname cdeps ctvars cproj crocq =
   Rocqtop_class { cname; cdeps; ctvars; cproj; crocq }
 
 let tinst inst_nm inst_class = Rocqtop_instance { inst_nm; inst_class }
-let rocq_module nm args tops = Rocqtop_module (nm, args, tops)
-let mod_type nm args tops = Rocqtop_module_type (nm, args, tops)
+let rocq_section nm tops = Rocqtop_section (nm, tops)
+let mod_type nm tops = Rocqtop_module_type (nm, tops)
 let import nm = Rocqtop_import nm
 
 (** Inductive definitions *)
@@ -218,7 +220,7 @@ let rocq_match carg branches = Rocq_match (carg, branches)
 (** Function [fun (x1:Type) .. (xn:Type) => c] *)
 
 let rocq_if_bool c0 c1 c2 = Rocq_if (c0, c1, c2)
-let rocq_if_prop c0 c1 c2 = Rocq_if (Rocq_app (Rocq_var "classicT", c0), c1, c2)
+let rocq_if_prop c0 c1 c2 = Rocq_if (Rocq_app (Rocq_var "decide", c0), c1, c2)
 (* TODO: set the path to TLC? *)
 
 (** Let binding [let (x:T) := t1 in t2] TODO let rocq_foralls args c =
@@ -242,6 +244,9 @@ let rocq_foralls args c =
 let rocq_hexists l s =
   match l with [] -> s | _ -> [ Rocq_hquant (Exists, l, s) ]
 
+let rocq_hforalls l s =
+  match l with [] -> s | _ -> Rocq_hquant (Forall, l, [ s ])
+
 let rocq_insts l rocq =
   match l with [] -> rocq | _ -> Rocq_quant (Forall, List.map inst l, rocq)
 
@@ -254,6 +259,21 @@ let rocq_impl c1 c2 = Rocq_infix (c1, "->", c2)
 (** Implication [c1 -> c2 -> .. -> cn -> c] *)
 
 let rocq_impls cs c = List.fold_right (fun ci acc -> rocq_impl ci acc) cs c
+let mk_lens_nm tvar = tvar ^ "'"
+
+let mk_lens sl_prop tvar =
+  let typ = rocq_impls [ rocq_val; Rocq_var tvar ] sl_prop in
+  { var_name = Some (mk_lens_nm tvar); var_type = typ }
+
+let rocq_persistent l spec =
+  match l with
+  | [] -> spec
+  | _ ->
+      List.fold_left
+        (fun acc x ->
+          let lens = mk_lens_nm (to_tvar x) in
+          Rocq_wand ([ Rocq_persistent lens ], [ acc ]))
+        spec l
 
 (** Predicate type [A->Prop] *)
 

@@ -2,7 +2,7 @@ open PPrint
 open Rocq
 
 module type S = sig
-  val print_spec : Rocq.spec -> document
+  val sep_expr : Rocq.rocq_sep -> document
   val print_set : var -> rocq -> document
   val print : rocqtops -> var
 end
@@ -120,38 +120,8 @@ module Printer (Sep_printer : S) = struct
     | Rocq_implicit (v, arg) ->
         parens (string v ^^ colonequals ^^ space ^^ expr arg)
     | ( Rocq_app _ | Rocq_lettuple _ | Rocq_quant _ | Rocq_fun _ | Rocq_if _
-      | Rocq_match _ | Rocq_infix _ | Rocq_spec _ ) as e ->
+      | Rocq_match _ | Rocq_infix _ | Rocq_sep _ ) as e ->
         parens (expr e)
-
-  (* and spec_vars_cfml l = *)
-  (*   let spec_var v = *)
-  (*     string (match v with Unit | Wildcard -> "_" | Var v -> v) *)
-  (*   in *)
-  (*   parens (con comma spec_var l) ^^ space ^^ equals ^^ space *)
-
-  (* and cfml_post rets post = *)
-  (*   match rets with *)
-  (*   | [ Unit ] -> string "POSTUNIT" ^^ expr0 post *)
-  (*   | [ Var x ] -> *)
-  (*       string "POST" *)
-  (*       ^^ parens (string "fun" ^^ space ^^ string x ^^ doublearrow ^^ expr0 post) *)
-  (*   | l -> *)
-  (*       let ret_name = "_rets_" in *)
-  (*       string "POST" *)
-  (*       ^^ parens *)
-  (*            (string "fun" ^^ space ^^ string ret_name ^^ doublearrow *)
-  (*            ^^ parens (spec_vars_cfml l) *)
-  (*            ^^ string ret_name ^^ string "in" ^^ expr0 post) *)
-
-  (* and sep_expr_cfml = function *)
-  (*   | Rocq_pure e -> backslash ^^ brackets (expr e) *)
-  (*   | Rocq_hempty -> backslash ^^ lbracket ^^ rbracket *)
-  (* | Rocq_spec (f, args, pre, rets, post) -> *)
-  (*     string "SPEC" *)
-  (*     ^^ parens *)
-  (*          (string f ^^ space *)
-  (*          ^^ separate_map (string " ") (fun x -> string x.var_name) args) *)
-  (*     ^^ break 0 ^^ string "PRE" ^^ expr pre ^^ break 0 ^^ cfml_post rets post *)
 
   and expr1 = function
     | Rocq_app (e1, e2) -> app (expr1 e1) (expr0 e2)
@@ -187,7 +157,7 @@ module Printer (Sep_printer : S) = struct
         ^^ hardline
         ^^ concat_map mk_branch branches
         ^^ string "end"
-    | Rocq_spec spec -> Sep_printer.print_spec spec
+    | Rocq_sep s -> Sep_printer.sep_expr s
     | e -> expr1 e
 
   and expr e = group (expr2 e)
@@ -269,11 +239,10 @@ module Printer (Sep_printer : S) = struct
     | Rocqtop_import xs -> import xs
     | Rocqtop_require xs -> string "Require" ^^ deps xs
     | Rocqtop_require_import xs -> string "Require " ^^ import xs
-    | Rocqtop_module (x, args, defs) -> print_module "Module" x args defs
-    | Rocqtop_module_type (x, args, d) -> print_module "Module Type" x args d
+    | Rocqtop_section (x, defs) -> print_section "Section" x defs
+    | Rocqtop_module_type (x, d) -> print_section "Module Type" x d
     | Rocqtop_module_type_include x -> string "Include Type %s." ^^ string x
     | Rocqtop_custom x -> string x
-    | Rocqtop_section x -> string "Section " ^^ string x
     | Rocqtop_context xs -> string "Context" ^^ space ^^ tvars xs
     | Rocqtop_class c -> rocq_class c
     | Rocqtop_notation (nm, e) ->
@@ -282,10 +251,8 @@ module Printer (Sep_printer : S) = struct
         ^^ string " (only parsing)"
     | Rocqtop_comment str -> string "(* " ^^ string str ^^ string " *)"
 
-  and print_module prefix x args defs =
-    string prefix ^^ space ^^ string x
-    ^^ separate_map ~sep:space tvar args
-    ^^ dot ^^ hardline
+  and print_section prefix x defs =
+    string prefix ^^ space ^^ string x ^^ dot ^^ hardline
     ^^ nest (tops defs)
     ^^ hardline ^^ string "End " ^^ string x
 
@@ -314,7 +281,7 @@ module rec Iris : S = struct
         named := true;
         string (Option.get x.var_name)
     | Wildcard -> assert false
-    | Unit -> string "#()"
+    | Unit -> string "()"
 
   let spec_var_opt = function
     | Var x -> Some (string (Option.get x.var_name))
@@ -335,15 +302,18 @@ module rec Iris : S = struct
   let rec sep_expr = function
     | Rocq_pure e -> corners (expr e)
     | Rocq_hempty -> empty
-    | Rocq_lift (v, e1, e2) ->
-        group (string v ^^ break 1 ^^ expr0 e1 ^^ break 1 ^^ expr0 e2)
+    | Rocq_lift (v, l) -> group (string v ^^ break 1 ^^ separate_map expr0 l)
     | Rocq_hquant (q, vars, seps) ->
         let q = match q with Forall -> "∀" | Exists -> "∃" in
         quant_vars q vars (sep_exprs seps)
+    | Rocq_wand (e1, e2) ->
+        sep_exprs e1 ^^ string "-∗" ^^ break 1 ^^ sep_exprs e2
+    | Rocq_persistent v -> string "Primitives.prepr " ^^ string v
+    | Rocq_spec spec -> print_spec spec
 
   and sep_exprs = function l -> separate_map ~sep:(string "∗") sep_expr l
 
-  let print_spec spec =
+  and print_spec spec =
     let triple b = b ^^ b ^^ b in
     triple lbrace ^^ space ^^ sep_exprs spec.spec_pre ^^ space ^^ triple rbrace
     ^^ break 1 ^^ string spec.spec_nm ^^ space
@@ -366,15 +336,24 @@ module rec CFML : S = struct
   let rec sep_expr = function
     | Rocq_pure e -> backslash ^^ brackets (expr e)
     | Rocq_hempty -> backslash ^^ lbracket ^^ rbracket
-    | Rocq_lift (v, e1, e2) ->
-        expr e1 ^^ space ^^ string "~> " ^^ string v ^^ space ^^ expr e2
+    | Rocq_lift _ ->
+        (* expr e1 ^^ space ^^ string "~> " ^^ string v ^^ space ^^ expr e2 *)
+        assert false
     | Rocq_hquant (q, v, e) ->
         let q = match q with Forall -> "∀" | Exists -> "∃" in
         quant_vars q v (sep_exprs e)
+    | Rocq_spec s -> print_spec s
+    | Rocq_wand _ | Rocq_persistent _ -> assert false
 
   and sep_exprs l = separate_map ~sep:(string "\\*") sep_expr l
 
-  let cfml_post rets post =
+  and print_spec spec =
+    string "SPEC"
+    ^^ parens (string spec.spec_nm ^^ space ^^ spec_vars spec.spec_args)
+    ^^ break 0 ^^ string "PRE" ^^ sep_exprs spec.spec_pre ^^ break 0
+    ^^ cfml_post spec.spec_ret spec.spec_post
+
+  and cfml_post rets post =
     let post = sep_exprs post in
     match rets with
     | [ Unit ] -> string "POSTUNIT" ^^ post
@@ -391,12 +370,6 @@ module rec CFML : S = struct
              (string "fun" ^^ space ^^ string ret_name ^^ doublearrow
              ^^ parens (spec_vars l)
              ^^ string ret_name ^^ string "in" ^^ post)
-
-  let print_spec spec =
-    string "SPEC"
-    ^^ parens (string spec.spec_nm ^^ space ^^ spec_vars spec.spec_args)
-    ^^ break 0 ^^ string "PRE" ^^ sep_exprs spec.spec_pre ^^ break 0
-    ^^ cfml_post spec.spec_ret spec.spec_post
 
   let print_set v t =
     parens (string "fun " ^^ string v ^^ string "=>" ^^ expr0 t)

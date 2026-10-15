@@ -9,7 +9,7 @@ let dir = ref ""
 
 type backend = CFML | Iris
 
-let backend = ref CFML
+let backend = ref Iris
 let compile = ref true
 
 let spec =
@@ -20,9 +20,9 @@ let spec =
           printf "gospel2cfml %s@." version;
           exit 0),
       " print version information" );
-    ( "--iris",
-      Arg.Unit (fun () -> backend := Iris),
-      " use Iris as a verification backend" );
+    ( "--CFML",
+      Arg.Unit (fun () -> backend := CFML),
+      " use CFML as a verification backend" );
     ( "--dir",
       Arg.Set_string dir,
       " the directory in which the generated file will be output" );
@@ -38,7 +38,10 @@ let spec =
       "For developers only. This flag has two settings \"stdlib\" and \
        \"primitives\" which are used when translating the Gospel standard \
        library or the OCaml primitives specification." );
-    ("--no-compile", Arg.Unit (fun () -> compile := false), "");
+    ( "--no-compile",
+      Arg.Unit (fun () -> compile := false),
+      "When using Iris, setting this flag to true will make it so that the \
+       project will not be compiled." );
   ]
 
 module Iris = Peter.Make (Peter.Sep_to_iris)
@@ -87,7 +90,7 @@ let mk_base base_dir mod_name =
   ()
 
 let () =
-  let map = fun x -> x ^ "''" in
+  let map = fun x -> "_" ^ x in
   let file_sep =
     match Gospel.sep ~verbose:false ~map [ fname ] with
     | [ x ] -> x
